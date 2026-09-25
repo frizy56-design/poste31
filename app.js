@@ -434,7 +434,14 @@ const MAPS = {
   m1:{src:'maps/chamrousse.jpg', w:1516, h:2461, cw:200, tapL:46, top:70, name:'CDL Chamrousse', sub:'Violet long · 6 juin 2026'},
   m3:{src:'maps/les-grives.jpg', w:2482, h:2633, cw:260, tapL:58, top:70, name:'Les Grives', sub:'Revole des Chirats · Violet long',
       note:"La ligne verte est la trace GPS d'un coureur, elle ne fait pas partie de la carte."},
+  m4:{src:'maps/prelager.jpg', w:2136, h:3004, cw:220, tapL:50, top:70, name:'Prélager', sub:'Revole des Chirats MD 2026 · Violet long',
+      note:"La ligne verte est la trace GPS d'un coureur, elle ne fait pas partie de la carte."},
+  m5:{src:'maps/cfmd-bourbach.jpg', w:2499, h:1864, cw:200, tapL:46, top:50, name:'CFMD Bourbach-le-Bas', sub:'Buchberg-Saegekopf · H55',
+      note:'Sur ce scan, une partie du tracé violet paraît rouge.'},
+  m6:{src:'maps/cfc-mulhouse.jpg', w:3458, h:2578, cw:280, tapL:64, top:70, name:'CFC Mulhouse', sub:'Buchberg-Saegekopf · N2'},
 };
+// Norme 2017 : la zone interdite du tracé est hachurée en croisillons, le dessin de la « zone dangereuse » de l'ancienne légende
+const NOTE_OOB = "Sur les cartes récentes (norme 2017), la zone interdite du tracé est hachurée en croisillons violets. Dans ta légende, ce dessin s'appelle « zone dangereuse ».";
 const HOTSPOTS = [
   // CDL Chamrousse
   {m:'m1', x:657, y:1700, ans:'depart'},
@@ -464,6 +471,57 @@ const HOTSPOTS = [
   {m:'m3', x:95, y:1630, ans:'decouvert', a:45, ok:['encombre','semi-ouvert','arbres-disperses']},
   {m:'m3', x:2090, y:2140, ans:'marais', ok:['marais-pv','marais-inf','petit-marais']},
   {m:'m3', x:1330, y:1060, ans:'vegbasse-ralentie', ok:['vegbasse-impossible','foret-direction','vigne']},
+  // Prélager
+  {m:'m4', x:1695, y:973, ans:'arrivee', a:-30},
+  {m:'m4', x:1640, y:1118, ans:'depart', a:160},
+  {m:'m4', x:1021, y:683, ans:'poste', a:180},
+  {m:'m4', x:1680, y:1582, ans:'ligne-postes', a:160},
+  {m:'m4', x:1657, y:1500, ans:'ligne-nord', a:180},
+  {m:'m4', x:1959, y:1131, ans:'itineraire-interdit', a:115},
+  {m:'m4', x:1680, y:1527, ans:'petite-depression', a:-120, ok:['depression']},
+  {m:'m4', x:984, y:2300, ans:'courbe', a:180, ok:['courbe-maitresse','courbe-inter']},
+  {m:'m4', x:1689, y:867, ans:'element-vege', a:-45},
+  {m:'m4', x:1745, y:470, ans:'rocailleux', a:150, ok:['blocs','rocher','groupe-rochers','blocs-dense','pierreux-marche','pierreux-difficile']},
+  {m:'m4', x:1030, y:2430, ans:'decouvert', a:-45, ok:['encombre','terrain-cultive']},
+  {m:'m4', x:130, y:1550, ans:'vegbasse-ralentie', a:-45, ok:['vegbasse-impossible','foret-direction','vigne']},
+  {m:'m4', x:1574, y:1635, ans:'ruisseau', a:-90, ok:['cours-eau','ruisseau-inter','fosse-humide']},
+  {m:'m4', x:1598, y:889, ans:'route-principale', a:-135, ok:['autoroute','parking']},
+  {m:'m4', x:1317, y:2245, ans:'cloture', a:-90, ok:['cloture-ruine','cloture-inf']},
+  {m:'m4', x:1376, y:2250, ans:'batiments', a:180, ok:['ruines','habitations']},
+  {m:'m4', x:1146, y:2522, ans:'habitations', a:-60, ok:['zone-interdite','parking','batiments']},
+  // CFMD Bourbach-le-Bas
+  {m:'m5', x:2112, y:976, ans:'arrivee', a:0},
+  {m:'m5', x:1069, y:1013, ans:'depart', a:-150},
+  {m:'m5', x:502, y:1476, ans:'poste', a:0},
+  {m:'m5', x:1542, y:520, ans:'ligne-postes', a:-90},
+  {m:'m5', x:443, y:1540, ans:'ligne-nord', a:0},
+  {m:'m5', x:800, y:1330, ans:'zone-interdite-trace', a:135, ok:['zone-dangereuse','zone-interdite'], note:NOTE_OOB},
+  {m:'m5', x:556, y:1395, ans:'groupe-rochers', a:-135, ok:['blocs','rocher','blocs-dense']},
+  {m:'m5', x:476, y:1328, ans:'rocailleux', a:-150, ok:['blocs','blocs-dense','pierreux-marche','pierreux-difficile']},
+  {m:'m5', x:498, y:1430, ans:'element-vege', a:-45},
+  {m:'m5', x:432, y:1381, ans:'route', a:-90, ok:['chemin-carrossable','route-secondaire']},
+  {m:'m5', x:1551, y:320, ans:'lac', a:100, ok:['mare','marais-inf']},
+  {m:'m5', x:1486, y:315, ans:'batiments', a:180, ok:['ruines','habitations']},
+  {m:'m5', x:1462, y:300, ans:'habitations', a:-135, ok:['zone-interdite','parking','batiments']},
+  {m:'m5', x:1650, y:607, ans:'petite-tour', a:-45, ok:['haute-tour']},
+  {m:'m5', x:1671, y:754, ans:'element-homme', a:-45, ok:['borne']},
+  {m:'m5', x:1505, y:748, ans:'decouvert', a:100, ok:['encombre','terrain-cultive']},
+  // CFC Mulhouse
+  {m:'m6', x:1710, y:585, ans:'arrivee', a:0},
+  {m:'m6', x:1504, y:646, ans:'depart', a:-90},
+  {m:'m6', x:1627, y:1646, ans:'poste', a:90},
+  {m:'m6', x:1290, y:1736, ans:'ligne-postes', a:-90},
+  {m:'m6', x:1486, y:1700, ans:'ligne-nord', a:0},
+  {m:'m6', x:1350, y:520, ans:'zone-interdite-trace', a:-135, ok:['zone-dangereuse','zone-interdite'], note:NOTE_OOB},
+  {m:'m6', x:886, y:1224, ans:'lac', a:-100, ok:['mare','marais-inf']},
+  {m:'m6', x:912, y:1178, ans:'batiments', a:-60, ok:['ruines','habitations']},
+  {m:'m6', x:1012, y:1228, ans:'habitations', a:-30, ok:['zone-interdite','parking','batiments']},
+  {m:'m6', x:930, y:1089, ans:'marais', a:0, ok:['marais-pv','marais-inf','petit-marais']},
+  {m:'m6', x:1356, y:1968, ans:'petite-tour', a:-45, ok:['haute-tour']},
+  {m:'m6', x:1730, y:2098, ans:'mangeoire', a:-45, ok:['haute-tour']},
+  {m:'m6', x:1588, y:1938, ans:'element-vege', a:-45},
+  {m:'m6', x:1340, y:1690, ans:'decouvert', a:180, ok:['encombre','terrain-cultive']},
+  {m:'m6', x:1735, y:850, ans:'terrain-cultive', a:135, ok:['decouvert','verger','sablonneux']},
 ];
 
 /* Touche la carte : zones où plusieurs détails vérifiés sont proches les uns des autres.
@@ -474,6 +532,14 @@ const TAP_ZONES = [
   {m:'m1', pts:[{ans:'marais',x:95,y:1975,a:45},{ans:'ruisseau-inter',x:333,y:1985,a:135},{ans:'groupe-rochers',x:406,y:2004,a:135}]},
   {m:'m3', bb:[[548,168],[800,378]], pts:[{ans:'element-vege',x:440,y:310,a:135},{ans:'depart',x:570,y:230,a:0},{ans:'ligne-nord',x:661,y:280,a:0},{ans:'arrivee',x:716,y:332,a:180}]},
   {m:'m3', pts:[{ans:'batiments',x:1320,y:945,a:-45},{ans:'habitations',x:1288,y:1022,a:-135},{ans:'ruisseau',x:1240,y:1056,a:160},{ans:'vegbasse-ralentie',x:1330,y:1060,a:45}]},
+  {m:'m4', pts:[{ans:'batiments',x:1376,y:2250,a:120},{ans:'route-principale',x:1412,y:2246,a:-30},{ans:'cloture',x:1317,y:2245,a:120},{ans:'decouvert',x:1300,y:2185,a:-150}]},
+  {m:'m4', pts:[{ans:'arrivee',x:1695,y:973,a:-30},{ans:'depart',x:1640,y:1118,a:160},{ans:'itineraire-interdit',x:1761,y:1048,a:60}]},
+  {m:'m4', pts:[{ans:'ligne-nord',x:1657,y:1470,a:180},{ans:'petite-depression',x:1680,y:1527,a:-60},{ans:'ligne-postes',x:1680,y:1582,a:160},{ans:'ruisseau',x:1574,y:1635,a:180}]},
+  {m:'m5', pts:[{ans:'lac',x:1551,y:320,a:90},{ans:'batiments',x:1486,y:315,a:120},{ans:'habitations',x:1462,y:300,a:-135}]},
+  {m:'m5', pts:[{ans:'groupe-rochers',x:556,y:1395,a:-45},{ans:'rocailleux',x:476,y:1328,a:-120},{ans:'element-vege',x:498,y:1430,a:120},{ans:'route',x:432,y:1381,a:160}]},
+  {m:'m6', pts:[{ans:'lac',x:886,y:1224,a:-150},{ans:'batiments',x:912,y:1178,a:-60},{ans:'marais',x:930,y:1089,a:0},{ans:'habitations',x:1012,y:1228,a:-30}]},
+  {m:'m6', pts:[{ans:'petite-tour',x:1511,y:2000,a:-135},{ans:'element-vege',x:1588,y:1938,a:-45},{ans:'mangeoire',x:1730,y:2098,a:-45}]},
+  {m:'m6', pts:[{ans:'depart',x:1504,y:646,a:-90},{ans:'arrivee',x:1710,y:585,a:0},{ans:'zone-interdite-trace',x:1420,y:560,a:-135,note:NOTE_OOB}]},
 ];
 // Paires jamais proposées ensemble quand un seul symbole est montré (trop proches sans point de comparaison)
 const EXCLUDE = [['borne','element-homme'],['accidente','tres-accidente'],['blocs','blocs-dense'],['rocailleux','pierreux-marche'],
@@ -903,7 +969,40 @@ function loadMap(m){
   img.onerror = () => { mapState[m] = 'err'; onMapState(m); };
   img.src = MAPS[m].src;
 }
-function preloadMaps(){ Object.keys(MAPS).forEach(loadMap); }
+/* une carte absente du site (fichier pas encore envoyé sur GitHub) est simplement ignorée */
+const mapAvail = {};   // m -> true (présente) | false (absente) ; inconnue tant qu'on n'a pas pu vérifier
+let mapProbe = null;
+function probeMaps(){
+  if(mapProbe) return mapProbe;
+  if(!/^https?:$/.test(location.protocol)){ mapProbe = Promise.resolve(); return mapProbe; }
+  mapProbe = Promise.all(Object.keys(MAPS).map(async m => {
+    let t = null;
+    try{
+      const ctl = typeof AbortController!=='undefined' ? new AbortController() : null;
+      if(ctl) t = setTimeout(()=>ctl.abort(), 6000);
+      const r = await fetch(MAPS[m].src, {method:'HEAD', cache:'no-cache', signal: ctl ? ctl.signal : undefined});
+      if(r.status===404 || r.status===410) mapAvail[m] = false; else if(r.ok) mapAvail[m] = true;
+    }catch(e){ /* hors connexion : on ne sait pas, on garde la carte */ }
+    finally{ if(t) clearTimeout(t); }
+  }));
+  return mapProbe;
+}
+const mapUsable = m => mapAvail[m] !== false;
+const waitProbe = () => Promise.race([probeMaps(), new Promise(r => setTimeout(r, 2000))]);
+// quelques cartes seulement par partie : moins de données à charger sur téléphone, et de la variété d'une partie à l'autre
+function limitMaps(items, getM, need, k=3){
+  const keep = new Set();
+  for(const m of shuffle([...new Set(items.map(getM))])){
+    if(keep.size >= k && items.filter(x=>keep.has(getM(x))).length >= need) break;
+    keep.add(m);
+  }
+  return items.filter(x=>keep.has(getM(x)));
+}
+function loadMapsFor(queue){
+  const seen = [];
+  for(const it of queue){ const m = it.type==='map' ? HOTSPOTS[it.hs].m : TAP_ZONES[it.z].m; if(!seen.includes(m)) seen.push(m); }
+  seen.forEach(loadMap);   // la carte de la première question part en premier
+}
 function mapOverlay(m){
   const s = mapState[m];
   if(s==='ok') return '';
@@ -1126,6 +1225,7 @@ function levelIcon(){
   return `<svg class="medal" viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="30" r="27" fill="#FFFFFF" stroke="#B02A83" stroke-width="3"/><path d="M19 36l11-9 11 9M19 27l11-9 11 9" fill="none" stroke="#B02A83" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
 function renderHome(){
+  probeMaps();
   if(checkBadges().badges.length) touch();
   const t = dayIndex(), plan = planCircuit(), day = st.days[t], done = !!(day && day.c>0);
   const streak = getStreak(), total = ACTIVE().length, seen = seenCount(), mastered = masteredCount();
@@ -1349,7 +1449,7 @@ function mapAnswer(it, v, ok){
   const tap = it.type==='tap';
   const svg = $('#qmap');
   if(!tap && svg && it._mv){ const r = svg.querySelector('.ring'); if(r) r.setAttribute('opacity','1'); tweenVB(svg, it._mv.vq, it._mv.vc, 750); }
-  const s = BY_ID[it.id], note = tap ? '' : (HOTSPOTS[it.hs].note || ''), fb = $('#fb');
+  const s = BY_ID[it.id], note = (tap ? (TAP_ZONES[it.z].pts.find(p=>p.ans===it.id)||{}).note : HOTSPOTS[it.hs].note) || '', fb = $('#fb');
   const last = session.pos >= session.queue.length-1;
   const nextLbl = last ? 'Voir mon résultat' : tap ? 'Zone suivante' : 'Flèche suivante';
   fb.innerHTML = `<div class="fb-inner">
@@ -1453,15 +1553,20 @@ function startTraining(cat){
   clock.reset();
   go(false);
 }
-function startTap(){
-  preloadMaps();
+let starting = false;
+async function startTap(){
+  if(starting) return; starting = true;
+  try{ await waitProbe(); } finally { starting = false; }
   const all = [];
-  TAP_ZONES.forEach((z,zi)=> z.pts.forEach(p=> all.push({z:zi, id:p.ans})));
+  TAP_ZONES.forEach((z,zi)=>{ if(mapUsable(z.m)) z.pts.forEach(p=>{ if(isActive(BY_ID[p.ans])) all.push({z:zi, id:p.ans}); }); });
+  if(!all.length){ openInfo('Touche la carte', "Aucune carte n'est disponible pour le moment. Réessaie un peu plus tard."); return; }
+  const few = limitMaps(all, x=>TAP_ZONES[x.z].m, 10);
   const pick = []; let lastZ = -1;
-  for(const x of shuffle(all)){ if(pick.length>=8) break; if(x.z===lastZ) continue; pick.push(x); lastZ = x.z; }
-  for(const x of shuffle(all)){ if(pick.length>=8) break; if(!pick.includes(x)) pick.push(x); }
+  for(const x of shuffle(few)){ if(pick.length>=8) break; if(x.z===lastZ) continue; pick.push(x); lastZ = x.z; }
+  for(const x of shuffle(few)){ if(pick.length>=8) break; if(!pick.includes(x)) pick.push(x); }
   session = {mode:'tap', queue:pick.map(x=>({id:x.id, z:x.z, type:'tap'})), pos:0, log:[], over:false};
   session.initial = session.queue.length;
+  loadMapsFor(session.queue);
   clock.reset();
   go(false);
 }
@@ -1510,10 +1615,13 @@ function startDuel(focusId){
   closeSheet();
   go(false);
 }
-function startMapGame(){
-  preloadMaps();
+async function startMapGame(){
+  if(starting) return; starting = true;
+  try{ await waitProbe(); } finally { starting = false; }
+  const pool = HOTSPOTS.map((h,i)=>i).filter(i => mapUsable(HOTSPOTS[i].m) && isActive(BY_ID[HOTSPOTS[i].ans]));
+  if(!pool.length){ openInfo('Lecture de carte', "Aucune carte n'est disponible pour le moment. Réessaie un peu plus tard."); return; }
   const count = {}, pick = [];
-  for(const i of shuffle(HOTSPOTS.map((h,i)=>i))){
+  for(const i of shuffle(limitMaps(pool, i=>HOTSPOTS[i].m, 16))){
     const a = HOTSPOTS[i].ans;
     if((count[a]||0) >= 2) continue;
     count[a] = (count[a]||0) + 1; pick.push(i);
@@ -1521,6 +1629,7 @@ function startMapGame(){
   }
   session = {mode:'map', queue:pick.map(i=>({id:HOTSPOTS[i].ans, hs:i, type:'map'})), pos:0, log:[], over:false};
   session.initial = session.queue.length;
+  loadMapsFor(session.queue);
   clock.reset();
   go(false);
 }
@@ -1690,7 +1799,7 @@ function renderCarnet(){
     const head = carnetCat==='all'
       ? `${extRow}<p class="muted small" style="margin-bottom:12px">Touche un symbole pour savoir ce qu'il veut dire et ce que tu verras sur le terrain. Les pastilles montrent ton niveau, de 1 à 5.</p>`
       : carnetCat==='ext'
-      ? `${extRow}<div class="carnet-cat"><b>Norme 2017</b><p class="muted small">Tes trois cartes suivent la norme ISOM 2017, qui compte quelques symboles absents de ta fiche. Ceux-ci en font partie.</p></div>`
+      ? `${extRow}<div class="carnet-cat"><b>Norme 2017</b><p class="muted small">Les cartes du jeu suivent la norme ISOM 2017, qui compte quelques symboles absents de ta fiche. Ceux-ci en font partie.</p></div>`
       : `<div class="carnet-cat"><b>${esc(CAT[carnetCat].label)}</b><p class="muted small">${esc(CAT[carnetCat].tip)}</p><button class="btn-ghost" data-act="train" data-cat="${carnetCat}">S'entraîner sur cette famille</button></div>`;
     body = `${head}<div class="grid">${list.map(itemHTML).join('')}</div>`;
   }
