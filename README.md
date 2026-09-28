@@ -1,6 +1,6 @@
 # Poste 31
 
-Le jeu pour apprendre par cœur la légende des cartes de course d'orientation, un petit circuit par jour.
+Le jeu pour apprendre par cœur la légende des cartes de course d'orientation, un petit circuit par jour, avec Bali, la balise mascotte, et sa garde-robe d'accessoires à gagner.
 Chaque enfant du club se crée un compte avec **un pseudo, un mot de passe et une question secrète** : pas d'adresse e-mail, pas de vrai nom. Sa progression le suit d'un appareil à l'autre, et il reste connecté sur son téléphone sans avoir à retaper son mot de passe.
 
 Le tout tourne gratuitement :
@@ -19,7 +19,6 @@ Compte environ 20 minutes pour tout installer, une seule fois.
 | `index.html`, `app.js`, `styles.css`, `favicon.svg` | le site |
 | `config.js` | l'adresse de ta base Supabase (à remplir à l'étape 3) |
 | `maps/` | les cartes des modes « Lecture de carte » et « Touche la carte » |
-| `cartes-en-attente/` | trois cartes à mettre dans `maps/` une fois l'accord de leurs auteurs obtenu (voir « Les cartes du jeu ») |
 | `supabase/schema.sql` | les tables et fonctions à installer dans Supabase (étape 2) |
 | `.github/workflows/reveil-supabase.yml` | empêche Supabase de mettre la base en veille (étape 6) |
 | `.nojekyll` | dit à GitHub de publier les fichiers tels quels |
@@ -71,7 +70,7 @@ Tu peux aussi faire cette étape après l'envoi sur GitHub : ouvre `config.js` s
    - Choisis **Public** (GitHub Pages est gratuit pour les dépôts publics).
    - Clique sur **Create repository**.
 2. Sur la page du dépôt vide, clique sur le lien **uploading an existing file**.
-3. Glisse-dépose le contenu du dossier : `index.html`, `app.js`, `styles.css`, `config.js`, `favicon.svg`, `README.md`, et les dossiers `maps` et `supabase`. N'envoie pas le dossier `cartes-en-attente` (voir « Les cartes du jeu »).
+3. Glisse-dépose le contenu du dossier : `index.html`, `app.js`, `styles.css`, `config.js`, `favicon.svg`, `README.md`, et les dossiers `maps` et `supabase`.
 4. Clique sur **Commit changes**.
 
 Les fichiers qui commencent par un point (`.nojekyll`, `.github`) sont souvent cachés par l'ordinateur et ne partent pas avec un glisser-déposer : ce n'est pas grave, le site fonctionne sans `.nojekyll`, et l'étape 6 explique comment ajouter le « réveil ».
@@ -189,25 +188,18 @@ Modifie ou remplace les fichiers directement sur GitHub (**Add file → Upload f
 
 ## Les cartes du jeu
 
-Les modes « Lecture de carte » et « Touche la carte » piochent dans cinq cartes, jusqu'à trois par partie :
+Les modes « Lecture de carte » et « Touche la carte » piochent dans les cartes du dossier `maps/`, jusqu'à trois par partie :
 
-| Fichier | Carte | Où il est |
-|---|---|---|
-| `chamrousse.jpg` | CDL Chamrousse | `maps/` |
-| `les-grives.jpg` | Les Grives | `maps/` |
-| `prelager.jpg` | Prélager, Revole des Chirats MD 2026 | `cartes-en-attente/` |
-| `cfmd-bourbach.jpg` | CFMD 2026, Bourbach-le-Bas | `cartes-en-attente/` |
-| `cfc-mulhouse.jpg` | CFC 2026, Mulhouse | `cartes-en-attente/` |
+| Fichier | Carte |
+|---|---|
+| `chamrousse.jpg` | CDL Chamrousse |
+| `les-grives.jpg` | Les Grives |
+| `prelager.jpg` | Prélager, Revole des Chirats MD 2026 (CDCO 42, © FFCO 2026) |
+| `cfmd-bourbach.jpg` | CFMD 2026, Bourbach-le-Bas (Club d'Orientation Mulhouse) |
+| `cfc-mulhouse.jpg` | CFC 2026, Mulhouse (Club d'Orientation Mulhouse) |
 
-Le jeu utilise seulement les cartes présentes dans le dossier `maps/` du dépôt. Une carte absente est simplement ignorée, sans message d'erreur.
+Les auteurs des cartes de Prélager, Bourbach-le-Bas et Mulhouse ont donné leur accord pour leur utilisation dans le jeu.
 
-**Pourquoi trois cartes attendent.** Elles portent une mention qui interdit de les reproduire sans l'accord de leur auteur. Comme le dépôt GitHub est public, n'importe qui pourrait les télécharger. Demande donc l'accord avant de les mettre en ligne :
+Le jeu n'utilise que les cartes présentes dans `maps/`. Pour **retirer une carte**, supprime son fichier sur GitHub (ouvre le fichier, menu **⋯ → Delete file**) : le jeu continue avec les autres, sans message d'erreur. Pour en **remettre une**, renvoie-la dans `maps/` avec exactement le même nom de fichier.
 
-- **Prélager** : Comité départemental de course d'orientation de la Loire (CDCO 42), contact@cdco42.fr. La carte porte aussi la mention © FFCO 2026.
-- **CFMD Bourbach-le-Bas** et **CFC Mulhouse** : Club d'Orientation Mulhouse, contact@comulhouse.fr (cartes dessinées par Michel Duboc).
-
-**Ajouter une carte une fois l'accord obtenu.** Sur GitHub, ouvre le dossier `maps`, clique sur **Add file → Upload files**, glisse le fichier depuis `cartes-en-attente/`, puis **Commit changes**. Garde exactement le même nom de fichier. La carte apparaît dans le jeu une ou deux minutes plus tard.
-
-**Retirer une carte.** Supprime son fichier du dossier `maps` sur GitHub (ouvre le fichier, menu **⋯ → Delete file**). Le jeu continue avec les autres.
-
-Pour Chamrousse et Les Grives, déjà dans `maps/`, il reste correct de prévenir les clubs qui les ont dessinées. La carte de la Coupe Jurassienne n'est pas incluse : elle interdit elle aussi toute reproduction.
+La carte de la Coupe Jurassienne n'est pas incluse : elle interdit elle aussi toute reproduction sans accord. Le jeu la reconnaît déjà (fichier `coupe-jurassienne.jpg`) si un jour son auteur est d'accord.

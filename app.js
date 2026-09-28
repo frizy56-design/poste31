@@ -432,6 +432,8 @@ const PAIRS = [
    ========================================================= */
 const MAPS = {
   m1:{src:'maps/chamrousse.jpg', w:1516, h:2461, cw:200, tapL:46, top:70, name:'CDL Chamrousse', sub:'Violet long · 6 juin 2026'},
+  m2:{src:'maps/coupe-jurassienne.jpg', w:2168, h:3236, cw:240, tapL:55, top:70, name:'Coupe Jurassienne', sub:'Circuit noir · 20 juin 2026',
+      note:"Sur cette carte, le tracé est imprimé en bleu foncé plutôt qu'en violet, et la ligne verte est la trace GPS d'un coureur."},
   m3:{src:'maps/les-grives.jpg', w:2482, h:2633, cw:260, tapL:58, top:70, name:'Les Grives', sub:'Revole des Chirats · Violet long',
       note:"La ligne verte est la trace GPS d'un coureur, elle ne fait pas partie de la carte."},
   m4:{src:'maps/prelager.jpg', w:2136, h:3004, cw:220, tapL:50, top:70, name:'Prélager', sub:'Revole des Chirats MD 2026 · Violet long',
@@ -459,6 +461,14 @@ const HOTSPOTS = [
   {m:'m1', x:580, y:804, ans:'ruisseau', a:100, ok:['cours-eau','ruisseau-inter','fosse-humide']},
   {m:'m1', x:1433, y:2043, ans:'element-vege'},
   {m:'m1', x:1011, y:1575, ans:'ligne-nord', a:0},
+  // Coupe Jurassienne (ignorée si le fichier de la carte n'est pas en ligne)
+  {m:'m2', x:1305, y:838, ans:'depart', a:180},
+  {m:'m2', x:1257, y:790, ans:'ligne-nord', a:0},
+  {m:'m2', x:1893, y:1812, ans:'element-vege', note:'Ici, le cercle vert désigne un grand arbre remarquable.'},
+  {m:'m2', x:1197, y:408, ans:'batiments', ok:['ruines']},
+  {m:'m2', x:1170, y:507, ans:'element-homme'},
+  {m:'m2', x:1668, y:1487, ans:'rocher'},
+  {m:'m2', x:700, y:575, ans:'decouvert', ok:['encombre','semi-ouvert','arbres-disperses'], note:'Le scan rend le jaune un peu orangé.'},
   // Les Grives
   {m:'m3', x:570, y:230, ans:'depart', a:0},
   {m:'m3', x:716, y:332, ans:'arrivee', a:180},
@@ -637,7 +647,7 @@ const INT = [0,1,2,4,8,16];           // jours avant la prochaine révision selo
 const LS_KEY = 'poste31.progress.v1';
 const LS_PREF = 'poste31.prefs';
 const num = v => (typeof v==='number' && isFinite(v)) ? v : 0;
-function blankState(){ return {v:1, cards:{}, days:{}, bestSprint:0, bestAvg:0, updatedAt:0, resetAt:0, conf:{}, badges:{}, opt:{ext:false, extT:0}, lvlMax:0}; }
+function blankState(){ return {v:1, cards:{}, days:{}, bestSprint:0, bestAvg:0, updatedAt:0, resetAt:0, conf:{}, badges:{}, opt:{ext:false, extT:0}, lvlMax:0, acc:{}, look:{t:0}}; }
 function normalize(o){
   const s = blankState();
   if(!o || typeof o!=='object') return s;
@@ -655,6 +665,12 @@ function normalize(o){
     if(BADGE_KEYS.has(k) && num(v)>0) s.badges[k] = num(v);
   }
   if(o.opt && typeof o.opt==='object') s.opt = {ext: !!o.opt.ext, extT: num(o.opt.extT)};
+  // garde-robe de Bali : accessoires gagnés (date) et tenue choisie
+  if(o.acc && typeof o.acc==='object') for(const [k,v] of Object.entries(o.acc)){ if(ACC_BY[k] && num(v)>0) s.acc[k] = num(v); }
+  if(o.look && typeof o.look==='object'){
+    s.look.t = num(o.look.t);
+    for(const sl of SLOTS){ const id = o.look[sl]; if(typeof id==='string' && ACC_BY[id] && ACC_BY[id].slot===sl) s.look[sl] = id; }
+  }
   s.bestSprint = num(o.bestSprint); s.bestAvg = num(o.bestAvg); s.updatedAt = num(o.updatedAt); s.resetAt = num(o.resetAt); s.lvlMax = num(o.lvlMax);
   return s;
 }
@@ -681,6 +697,11 @@ function merge(a,b){
     m.badges[k] = Math.min(...v);
   }
   m.opt = Object.assign({}, (b.opt.extT > a.opt.extT) ? b.opt : a.opt);
+  for(const k of new Set([...Object.keys(a.acc), ...Object.keys(b.acc)])){
+    const v = [a.acc[k], b.acc[k]].filter(x=>x>0);
+    m.acc[k] = Math.min(...v);
+  }
+  m.look = Object.assign({}, (b.look.t > a.look.t) ? b.look : a.look);
   m.lvlMax = Math.max(a.lvlMax, b.lvlMax);
   m.bestSprint = Math.max(a.bestSprint, b.bestSprint);
   m.bestAvg = [a.bestAvg,b.bestAvg].filter(v=>v>0).reduce((p,v)=>p?Math.min(p,v):v,0);
@@ -697,6 +718,8 @@ function savePrefs(){ try{ localStorage.setItem(LS_PREF, JSON.stringify(prefs));
    Compte : session gardée dans un cookie, progression dans Supabase
    ========================================================= */
 const CFG = window.POSTE31_CONFIG || {};
+// « artifact » : version de test dans Claude, sans compte (progression sur l'appareil + base de l'artefact)
+const LOCAL = CFG.mode === 'artifact';
 const API_URL = String(CFG.supabaseUrl || '').trim().replace(/\/+$/, '');
 const API_KEY = String(CFG.supabaseKey || '').trim();
 const CONFIGURED = /^https?:\/\/\S+$/.test(API_URL) && API_KEY.length > 20;
@@ -708,7 +731,7 @@ const localKey = u => LS_KEY + '.' + u;
 function getToken(){ const m = document.cookie.match(/(?:^|;\s*)p31_session=([a-f0-9]{64})(?:;|$)/); return m ? m[1] : null; }
 function setToken(t){ document.cookie = `${COOKIE}=${t}; Max-Age=${400*86400}; Path=${COOKIE_PATH}; SameSite=Lax${location.protocol==='https:' ? '; Secure' : ''}`; }
 function clearToken(){ document.cookie = `${COOKIE}=; Max-Age=0; Path=${COOKIE_PATH}; SameSite=Lax`; }
-function saveLocal(){ if(!me) return; try{ localStorage.setItem(localKey(me), JSON.stringify(st)); }catch(e){} }
+function saveLocal(){ const k = LOCAL ? LS_KEY : (me ? localKey(me) : null); if(!k) return; try{ localStorage.setItem(k, JSON.stringify(st)); }catch(e){} }
 function loadLocal(u){ try{ return normalize(JSON.parse(localStorage.getItem(localKey(u)) || 'null')); }catch(e){ return blankState(); } }
 
 async function rpc(fn, args){
@@ -723,9 +746,10 @@ async function rpc(fn, args){
 
 let syncState = 'wait', saveTimer = null, saving = false, again = false;
 function touch(){ st.updatedAt = Date.now(); saveLocal(); scheduleCloud(); }
-function scheduleCloud(delay=1500){ if(!me) return; clearTimeout(saveTimer); saveTimer = setTimeout(flushCloud, delay); }
+function scheduleCloud(delay=1500){ if(LOCAL ? !cloud : !me) return; clearTimeout(saveTimer); saveTimer = setTimeout(flushCloud, delay); }
 async function flushCloud(){
   clearTimeout(saveTimer);
+  if(LOCAL) return flushArtifact();
   const token = getToken();
   if(!me || !token) return;
   if(saving){ again = true; return; }
@@ -739,11 +763,13 @@ async function flushCloud(){
 }
 function setSync(s){ syncState = s; const el = $('#sync'); if(el) el.innerHTML = syncHTML(); }
 function syncHTML(){
+  if(LOCAL) return syncState==='cloud' ? '<span class="dot on"></span>Progression enregistrée sur ton compte, retrouve-la sur tous tes appareils.' : '<span class="dot"></span>Progression enregistrée sur cet appareil.';
   if(syncState==='cloud') return '<span class="dot on"></span>Progression sauvegardée sur ton compte : tu la retrouves sur n\'importe quel appareil.';
   if(syncState==='offline') return '<span class="dot warn"></span>Pas de connexion au serveur : ta progression est gardée sur cet appareil et sera envoyée dès que possible.';
   return '<span class="dot"></span>Connexion au serveur…';
 }
 async function pullCloud(){
+  if(LOCAL) return pullArtifact();
   const token = getToken();
   if(!me || !token) return;
   const u = me;
@@ -761,6 +787,48 @@ async function pullCloud(){
   } else if(Object.keys(st.cards).length || st.resetAt){
     flushCloud();
   }
+}
+/* ---- version artefact : la base de l'artefact (capacité db) quand elle est disponible ---- */
+let cloud = null, retried = false;
+async function flushArtifact(){
+  if(!cloud) return;
+  if(saving){ again = true; return; }
+  saving = true;
+  try{ await cloud.ref.set(JSON.parse(JSON.stringify(st))); retried = false; setSync('cloud'); }
+  catch(e){ onDbError(e); }
+  finally{ saving = false; if(again){ again = false; flushArtifact(); } }
+}
+function onDbError(e){
+  const code = e && e.code;
+  if(code==='unavailable' && !retried){ retried = true; setTimeout(flushArtifact, 1200 + Math.random()*1800); return; }
+  if(code==='resource_exhausted' || code==='unavailable'){ return; }
+  cloud = null; setSync('local');
+}
+async function connectArtifact(){
+  const cl = window.claude;
+  if(!cl || typeof cl.use!=='function') return;
+  let db=null, user=null;
+  try{ [db,user] = await Promise.all([cl.use('db'), cl.use('user')]); }catch(e){ return; }
+  if(!db || !user) return;
+  let uid = null; try{ uid = await user.id(); }catch(e){}
+  if(!uid) return;
+  try{ cloud = {ref: db.doc('data/users/'+uid+'/progress')}; }catch(e){ cloud = null; return; }
+  await pullArtifact();
+}
+async function pullArtifact(){
+  if(!cloud) return;
+  try{
+    const snap = await cloud.ref.get();
+    if(snap.exists){
+      const remote = normalize(snap.data());
+      const m = merge(st, remote), js = JSON.stringify(m);
+      const localChanged = js !== JSON.stringify(st), remoteChanged = js !== JSON.stringify(remote);
+      st = m; saveLocal();
+      if(localChanged && !session) refreshCurrent();
+      if(remoteChanged) flushArtifact();
+    } else if(Object.keys(st.cards).length || st.resetAt){ flushArtifact(); }
+    setSync('cloud');
+  }catch(e){ onDbError(e); }
 }
 function refreshCurrent(){
   if(!$('#screen-home').hidden) renderHome();
@@ -813,7 +881,8 @@ function checkBadges(extra){
   for(const k of (extra||[])) unlockBadge(k, got);
   const L = levelInfo().i, up = L > st.lvlMax;
   if(up) st.lvlMax = L;
-  return {badges:got, levelUp: up ? LEVELS[L].name : null};
+  const accs = []; checkAccs(accs);
+  return {badges:got, levelUp: up ? LEVELS[L].name : null, level:L, accs};
 }
 function grade(it, ok){
   if(it.type==='color') return;
@@ -1007,7 +1076,7 @@ function mapOverlay(m){
   const s = mapState[m];
   if(s==='ok') return '';
   if(s==='err') return `<div class="map-loading err" role="status"><p><b>La carte n'a pas pu se charger.</b><br>Vérifie ta connexion, puis réessaie.</p><div class="ml-actions"><button class="btn-ghost sm" data-act="map-retry" data-m="${m}">Réessayer</button><button class="linkish" data-act="skip-q">Passer cette question</button></div></div>`;
-  return `<div class="map-loading" role="status"><span class="ml-dot" aria-hidden="true"></span><p>Chargement de la carte…</p></div>`;
+  return `<div class="map-loading" role="status">${baliSVG({mood:'run', cls:'ml-b'})}<p>Chargement de la carte…</p></div>`;
 }
 function mapWrap(m, svg){ return `<div class="mapwrap" data-map="${m}">${svg}${mapOverlay(m)}</div>`; }
 function currentMap(){
@@ -1131,10 +1200,388 @@ function tick(){
     el.textContent = fmtClock(rem + 999);
     el.classList.toggle('warn', rem < 10000);
     const b = $('#tbar'); if(b) b.style.width = (rem/SPRINT_MS*100).toFixed(1)+'%';
+    const rn = $('#srun'); if(rn) rn.style.left = (rem/SPRINT_MS*100).toFixed(1)+'%';
     if(rem<=0 && !session.over) finishSprint();
   } else {
     el.textContent = fmtClock(clock.now());
   }
+}
+
+/* =========================================================
+   Bali, la balise : mascotte du jeu
+   Une balise de course d'orientation (le prisme orange et blanc) qui court,
+   saute, s'inquiète et se déguise. Dessin en SVG, animations en CSS.
+   ========================================================= */
+const B_INK = '#2A1F1A', B_OR = '#F26A1B', B_OR2 = '#C9531A', B_WH = '#FFFFFF', B_WH2 = '#E4E0D8', B_VI = '#B02A83', B_GOLD = '#FFC83D';
+
+// Accessoires : un par emplacement, gagnés en progressant
+const ACCS = [
+  {id:'dossard',   slot:'body', name:'Dossard 31',        how:'Finir ton premier circuit du jour.',          ok:()=> Object.values(st.days).some(d=>d.first>0)},
+  {id:'casquette', slot:'head', name:'Casquette',         how:'Atteindre le niveau 2.',                       ok:()=> levelInfo().i>=1},
+  {id:'bandeau',   slot:'head', name:'Bandeau',           how:"Courir le circuit du jour 3 jours d'affilée.", ok:()=> bestStreak()>=3},
+  {id:'lunettes',  slot:'face', name:'Lunettes de soleil',how:'Débloquer le badge « Sans faute ».',           ok:()=> !!st.badges['sans-faute']},
+  {id:'boussole',  slot:'hand', name:'Boussole',          how:'Atteindre le niveau 3.',                       ok:()=> levelInfo().i>=2},
+  {id:'frontale',  slot:'head', name:'Lampe frontale',    how:'Débloquer le badge « Œil de lynx » (10 flèches sur 10 en lecture de carte).', ok:()=> !!st.badges['carte-10']},
+  {id:'medaille',  slot:'chest',name:'Médaille',          how:'Débloquer 3 badges.',                          ok:()=> Object.keys(st.badges).length>=3},
+  {id:'cape',      slot:'back', name:'Cape de champion',  how:"Courir le circuit du jour 7 jours d'affilée.", ok:()=> !!st.badges['serie-7'] || bestStreak()>=7},
+  {id:'couronne',  slot:'head', name:'Couronne',          how:'Atteindre le niveau 6, « Maître de la légende ».', ok:()=> levelInfo().i>=5},
+];
+const ACC_BY = Object.fromEntries(ACCS.map(a=>[a.id,a]));
+const SLOTS = ['head','face','hand','chest','body','back'];
+function bestStreak(){
+  // meilleure série de jours consécutifs avec un circuit du jour
+  const ks = Object.keys(st.days).filter(k=>st.days[k].c>0).map(Number).sort((a,b)=>a-b);
+  let best = 0, run = 0, prev = null;
+  for(const k of ks){ run = (prev!==null && k===prev+1) ? run+1 : 1; best = Math.max(best, run); prev = k; }
+  return Math.max(best, getStreak());
+}
+function accUnlocked(id){ return !!st.acc[id]; }
+function checkAccs(list){
+  for(const a of ACCS){ if(!st.acc[a.id] && a.ok()){ st.acc[a.id] = Date.now(); if(list) list.push(a.id); } }
+}
+function lookNow(){ const out = {}; for(const s of SLOTS){ const id = st.look[s]; if(id && ACC_BY[id] && ACC_BY[id].slot===s && accUnlocked(id)) out[s] = id; } return out; }
+
+/* ---- le dessin ---- */
+function baliAcc(id){
+  switch(id){
+    case 'casquette': return `<g class="acc">
+      <path d="M33 35 Q34 13 60 13 Q86 13 87 35 Z" fill="${B_VI}" stroke="${B_INK}" stroke-width="2.6" stroke-linejoin="round"/>
+      <path d="M58 33 Q84 26 104 35 Q86 40 58 37 Z" fill="#8A1C66" stroke="${B_INK}" stroke-width="2.4" stroke-linejoin="round"/>
+      <circle cx="60" cy="13.5" r="2.6" fill="#8A1C66" stroke="${B_INK}" stroke-width="1.6"/>
+      <text x="48" y="30" font-size="11" font-weight="800" fill="#FFFFFF" font-family="Barlow Condensed, Arial Narrow, sans-serif" text-anchor="middle">31</text></g>`;
+    case 'bandeau': return `<g class="acc"><path d="M26.5 32.5 Q60 29 93.5 32.5 L93.5 40 Q60 36.5 26.5 40 Z" fill="#E4002B" stroke="${B_INK}" stroke-width="2.2" stroke-linejoin="round"/><path d="M28 36.3 Q60 32.8 92 36.3" fill="none" stroke="#FFFFFF" stroke-width="1.6"/></g>`;
+    case 'frontale': return `<g class="acc"><path d="M26.5 33 Q60 30 93.5 33 L93.5 39 Q60 36 26.5 39 Z" fill="#33363B" stroke="${B_INK}" stroke-width="2"/>
+      <circle class="b-beam" cx="60" cy="34" r="15" fill="#FFE98A" opacity=".55"/>
+      <rect x="52" y="28" width="16" height="12" rx="4" fill="#FFD23F" stroke="${B_INK}" stroke-width="2.2"/><circle cx="60" cy="34" r="3.4" fill="#FFF6C8" stroke="${B_INK}" stroke-width="1.2"/></g>`;
+    case 'couronne': return `<g class="acc"><path d="M36 35 L35 15 L47 25 L60 8 L73 25 L85 15 L84 35 Z" fill="${B_GOLD}" stroke="${B_INK}" stroke-width="2.4" stroke-linejoin="round"/>
+      <circle cx="60" cy="27" r="3.2" fill="#E4002B" stroke="${B_INK}" stroke-width="1.4"/><circle cx="45" cy="30" r="2.2" fill="#1D8FD0"/><circle cx="75" cy="30" r="2.2" fill="#1D8FD0"/></g>`;
+    case 'lunettes': return `<g class="acc"><rect x="36" y="48" width="22" height="15" rx="6" fill="#1F2A44" stroke="${B_INK}" stroke-width="2.2"/><rect x="62" y="48" width="22" height="15" rx="6" fill="#1F2A44" stroke="${B_INK}" stroke-width="2.2"/>
+      <path d="M58 54 L62 54" stroke="${B_INK}" stroke-width="2.4"/><path d="M40 52 L46 52 M66 52 L72 52" stroke="#9FB6E8" stroke-width="2" stroke-linecap="round"/></g>`;
+    case 'boussole': return `<g class="acc"><rect x="3" y="86" width="22" height="24" rx="3" fill="#D8ECF2" stroke="${B_INK}" stroke-width="2"/><circle cx="14" cy="98" r="7.5" fill="#FFFFFF" stroke="${B_INK}" stroke-width="1.8"/>
+      <path d="M14 91.5 L16.2 98 L14 104.5 L11.8 98 Z" fill="#E4002B"/><path d="M14 98 L16.2 98 L14 104.5 L11.8 98 Z" fill="#FFFFFF" stroke="${B_INK}" stroke-width=".6"/></g>`;
+    case 'medaille': return `<g class="acc"><path d="M33 80 L38 94 M47 80 L42 94" stroke="${B_VI}" stroke-width="4"/><circle cx="40" cy="89" r="6.5" fill="${B_GOLD}" stroke="${B_INK}" stroke-width="2"/><path d="M40 85.8 L41 88.2 L43.4 88.4 L41.6 90 L42.1 92.4 L40 91.2 L37.9 92.4 L38.4 90 L36.6 88.4 L39 88.2 Z" fill="#FFF3C4"/></g>`;
+    case 'dossard': return `<g class="acc"><rect x="46" y="85" width="28" height="12" rx="2" fill="#FFFFFF" stroke="${B_INK}" stroke-width="1.8"/><text x="60" y="94.4" font-size="10" font-weight="800" fill="${B_INK}" text-anchor="middle" font-family="Barlow Condensed, Arial Narrow, sans-serif">31</text><circle cx="49" cy="88" r="1" fill="${B_INK}"/><circle cx="71" cy="88" r="1" fill="${B_INK}"/></g>`;
+    case 'cape': return `<g class="acc b-cape"><path d="M30 42 Q16 86 20 112 Q40 106 60 112 Q80 106 100 112 Q104 86 90 42 Z" fill="${B_VI}" stroke="${B_INK}" stroke-width="2.4" stroke-linejoin="round"/></g>`;
+  }
+  return '';
+}
+function baliSVG(o={}){
+  const look = o.look || lookNow(), mood = o.mood || 'idle';
+  const has = s => look[s] ? baliAcc(look[s]) : '';
+  const eye = (cx, side) => `<g class="b-eye ${side}" style="transform-origin:${cx}px 56px">
+      <circle cx="${cx}" cy="56" r="9.5" fill="${B_WH}" stroke="${B_INK}" stroke-width="2.6"/>
+      <g class="b-pupil"><circle cx="${cx+1}" cy="57" r="4.9" fill="${B_INK}"/><circle cx="${cx-.6}" cy="55" r="1.8" fill="${B_WH}"/></g></g>`;
+  return `<svg class="bali${o.cls?' '+o.cls:''}" viewBox="0 0 120 132" data-mood="${mood}"${look.head?' data-hat="1"':''} role="img" aria-label="${esc(o.label || 'Bali, la balise')}">
+    <ellipse class="b-shadow" cx="60" cy="125" rx="27" ry="4.2" fill="#000" opacity=".13"/>
+    <g class="b-all">
+    ${has('back')}
+    <g class="b-flame"><path d="M60 -2 C70 10 84 14 84 32 C84 44 74 50 60 50 C46 50 36 44 36 32 C36 22 44 18 46 10 C50 18 54 20 56 20 C54 12 56 6 60 -2 Z" fill="#FF7A1A"/><path d="M60 14 C66 22 74 24 74 34 C74 42 68 46 60 46 C52 46 46 42 46 34 C46 28 51 26 53 22 C55 26 57 27 58 27 C57 22 58 18 60 14 Z" fill="${B_GOLD}"/></g>
+    <g class="b-legs">
+      <g class="b-leg l"><path d="M49 95 L47 113" stroke="${B_INK}" stroke-width="5" stroke-linecap="round"/><path d="M37 118 Q37 111 44 111 L50 111 Q55 111 55 116 L55 119 Q55 121.5 52.5 121.5 L39.5 121.5 Q37 121.5 37 119 Z" fill="${B_VI}" stroke="${B_INK}" stroke-width="2.2"/><path d="M38.5 119.6 L53.5 119.6" stroke="#fff" stroke-width="1.5"/></g>
+      <g class="b-leg r"><path d="M71 95 L73 113" stroke="${B_INK}" stroke-width="5" stroke-linecap="round"/><path d="M65 116 Q65 111 70 111 L76 111 Q83 111 83 118 L83 119 Q83 121.5 80.5 121.5 L67.5 121.5 Q65 121.5 65 119 Z" fill="${B_VI}" stroke="${B_INK}" stroke-width="2.2"/><path d="M66.5 119.6 L81.5 119.6" stroke="#fff" stroke-width="1.5"/></g>
+    </g>
+    <g class="b-body">
+      <g class="b-cord"><path d="M52 33 C49 17 71 17 68 33" fill="none" stroke="${B_INK}" stroke-width="2.6" stroke-linecap="round"/><circle cx="60" cy="21.5" r="2.4" fill="${B_OR}" stroke="${B_INK}" stroke-width="1.4"/></g>
+      <path d="M92 32 L100 38.5 L92 98 Z" fill="${B_WH2}"/><path d="M100 38.5 L100 93 L92 98 Z" fill="${B_OR2}"/>
+      <path d="M90 32.2 L100 38.5 L100 93 L91 98" fill="none" stroke="${B_INK}" stroke-width="2.6" stroke-linejoin="round"/>
+      <path d="M30.34 95.66 A8 8 0 0 1 28 90 L28 40 A8 8 0 0 1 36 32 L84 32 A8 8 0 0 1 89.66 34.34 Z" fill="${B_WH}"/>
+      <path d="M89.66 34.34 A8 8 0 0 1 92 40 L92 90 A8 8 0 0 1 84 98 L36 98 A8 8 0 0 1 30.34 95.66 Z" fill="${B_OR}"/>
+      <path d="M86 38 L86 88" stroke="#FF9A55" stroke-width="3" stroke-linecap="round" opacity=".7"/>
+      <rect x="28" y="32" width="64" height="66" rx="8" fill="none" stroke="${B_INK}" stroke-width="2.8"/>
+      <g class="b-face">
+        <ellipse cx="38" cy="69" rx="4.6" ry="2.8" fill="#FF8FB1" opacity=".6"/><ellipse cx="82" cy="69" rx="4.6" ry="2.8" fill="#FF6F91" opacity=".55"/>
+        <path class="b-brow l" d="M39 43 Q46 40.5 53 43.5" fill="none" stroke="${B_INK}" stroke-width="2.6" stroke-linecap="round"/>
+        <path class="b-brow r" d="M67 43.5 Q74 40.5 81 43" fill="none" stroke="${B_INK}" stroke-width="2.6" stroke-linecap="round"/>
+        ${eye(47,'l')}${eye(73,'r')}
+        <path class="b-squint" d="M39.5 58 Q47 49 54.5 58 M65.5 58 Q73 49 80.5 58" fill="none" stroke="${B_INK}" stroke-width="3" stroke-linecap="round"/>
+        <path class="b-closed" d="M39.5 55 Q47 62 54.5 55 M65.5 55 Q73 62 80.5 55" fill="none" stroke="${B_INK}" stroke-width="3" stroke-linecap="round"/>
+        <g class="b-mouth">
+          <path class="m m-smile" d="M51 75 Q60 84 69 75" fill="none" stroke="${B_INK}" stroke-width="2.8" stroke-linecap="round"/>
+          <g class="m m-grin"><path d="M49 73 Q60 93 71 73 Z" fill="${B_INK}" stroke="${B_INK}" stroke-width="2" stroke-linejoin="round"/><path d="M54.5 80.5 Q60 77.5 65.5 80.5 Q60 86 54.5 80.5 Z" fill="#FF6F91"/></g>
+          <ellipse class="m m-o" cx="60" cy="79" rx="4.2" ry="5.2" fill="${B_INK}"/>
+          <path class="m m-sad" d="M52 82 Q60 74 68 82" fill="none" stroke="${B_INK}" stroke-width="2.8" stroke-linecap="round"/>
+          <path class="m m-flat" d="M53 79 L67 79" fill="none" stroke="${B_INK}" stroke-width="2.8" stroke-linecap="round"/>
+          <path class="m m-wavy" d="M50 80 Q54 76 58 80 Q62 84 66 80 Q68 78 70 79" fill="none" stroke="${B_INK}" stroke-width="2.6" stroke-linecap="round"/>
+          <ellipse class="m m-sleep" cx="60" cy="80" rx="2.6" ry="2.2" fill="${B_INK}"/>
+        </g>
+      </g>
+      ${has('chest')}${has('body')}${has('head')}${has('face')}
+      <g class="b-arm l"><path d="M30 67 Q20 72 17 82" fill="none" stroke="${B_INK}" stroke-width="4.8" stroke-linecap="round"/><circle cx="16.5" cy="83.5" r="4.6" fill="${B_WH}" stroke="${B_INK}" stroke-width="2.4"/>${has('hand')}</g>
+      <g class="b-arm r"><path d="M99 67 Q107 72 109 81" fill="none" stroke="${B_INK}" stroke-width="4.8" stroke-linecap="round"/><circle cx="109.5" cy="82.5" r="4.6" fill="${B_WH}" stroke="${B_INK}" stroke-width="2.4"/></g>
+    </g>
+    <g class="b-fx">
+      <path class="b-spark s1" d="M14 26 L16.5 33.5 L24 36 L16.5 38.5 L14 46 L11.5 38.5 L4 36 L11.5 33.5 Z" fill="${B_GOLD}" stroke="${B_INK}" stroke-width="1.2"/>
+      <path class="b-spark s2" d="M104 12 L106 18 L112 20 L106 22 L104 28 L102 22 L96 20 L102 18 Z" fill="${B_GOLD}" stroke="${B_INK}" stroke-width="1.2"/>
+      <path class="b-spark s3" d="M110 48 L111.5 52.5 L116 54 L111.5 55.5 L110 60 L108.5 55.5 L104 54 L108.5 52.5 Z" fill="${B_GOLD}" stroke="${B_INK}" stroke-width="1"/>
+      <path class="b-sweat" d="M97 30 C101 36 103 39 103 42 A5 5 0 0 1 93 42 C93 39 95 36 97 30 Z" fill="#8FD3FF" stroke="${B_INK}" stroke-width="1.6"/>
+      <g class="b-zzz" fill="#6B7FD7" font-family="Barlow Condensed, Arial Narrow, sans-serif" font-weight="800"><text x="96" y="30" font-size="13">z</text><text x="104" y="18" font-size="18">Z</text></g>
+      <text class="b-q" x="100" y="30" font-size="26" font-weight="800" fill="${B_VI}" font-family="Barlow Condensed, Arial Narrow, sans-serif">?</text>
+    </g>
+    </g>
+  </svg>`;
+}
+
+/* ---- humeurs : une humeur de base, et des réactions passagères ---- */
+const MOODS = ['idle','wave','happy','cheer','oops','sad','think','run','sleep','fire','proud','wow','ready'];
+function baliSet(el, mood, ms){
+  if(!el) return;
+  clearTimeout(el._bt);
+  // relance l'animation même si l'humeur ne change pas
+  el.dataset.mood = 'none'; void el.getBoundingClientRect(); el.dataset.mood = mood;
+  if(ms) el._bt = setTimeout(()=>{ if(el.isConnected) el.dataset.mood = el.dataset.base || 'idle'; }, ms);
+}
+function baliBase(el, mood){ if(!el) return; el.dataset.base = mood; baliSet(el, mood); }
+// les yeux regardent un peu partout quand Bali s'ennuie
+let lookTimer = null;
+function baliLookAround(){
+  clearInterval(lookTimer);
+  lookTimer = setInterval(()=>{
+    const el = document.querySelector('#screen-home:not([hidden]) .bali');
+    if(!el){ return; }
+    if(el.dataset.mood!=='idle') return;
+    const dirs = [[0,0],[-2.4,-1],[2.4,-1],[0,1.8],[-2,1.2],[2,1.4]], d = dirs[Math.floor(Math.random()*dirs.length)];
+    el.style.setProperty('--lx', d[0]+'px'); el.style.setProperty('--ly', d[1]+'px');
+  }, 2600);
+}
+
+/* ---- ce que Bali raconte ---- */
+const pick = a => a[Math.floor(Math.random()*a.length)];
+const TIPS = [
+  "Sur une carte de course d'orientation, le nord est toujours en haut. Les lignes bleues fines montrent la direction du nord.",
+  "Oriente ta carte : tourne-la pour que son nord montre le vrai nord. Ce qui est devant toi sur la carte est alors devant toi dans la forêt.",
+  "Garde ton pouce sur l'endroit où tu es sur la carte. Tu le retrouves d'un coup d'œil.",
+  "Au poste, vérifie le code écrit sur la balise avant de pointer. Il doit être le même que sur ta description de postes.",
+  "Le violet est réservé au tracé : le triangle du départ, les cercles des postes et le double cercle de l'arrivée.",
+  "Le marron dessine le relief. Plus les courbes de niveau sont serrées, plus ça monte fort.",
+  "Le bleu, c'est l'eau : ruisseaux, mares, marais.",
+  "Le blanc, c'est la forêt où l'on court facilement. Plus le vert est foncé, plus la végétation te freine.",
+  "Le jaune, c'est un terrain découvert, sans arbres. On y voit loin.",
+  "Le noir sert aux rochers et à ce que l'homme a construit : chemins, murs, bâtiments.",
+  "Les codes des postes commencent à 31 pour ne jamais être confondus avec leur numéro d'ordre sur le circuit.",
+  "Une balise de course d'orientation est orange et blanche, comme moi. On l'accroche au détail dessiné au centre du cercle.",
+];
+function homeLine(){
+  const t = dayIndex(), day = st.days[t], done = !!(day && day.c>0), streak = getStreak();
+  const yesterday = st.days[t-1] && st.days[t-1].c>0;
+  const seen = seenCount();
+  if(!seen && !done && !Object.keys(st.days).length) return {mood:'wave', text:"Salut ! Moi c'est Bali, la balise. On part apprendre la légende des cartes ? Ton premier circuit t'attend."};
+  if(done && day.c>=3) return {mood:'proud', text:`${day.c} circuits aujourd'hui ! Tu cours plus vite que moi.`};
+  if(done) return {mood:'happy', text: pick([
+    `Circuit du jour bouclé ! ${streak>1 ? `Ta série monte à ${streak} jours.` : 'Ta série est lancée.'} Reviens demain pour la suite.`,
+    "Bien couru ! Tu peux tenter un circuit bonus ou jouer à la lecture de carte.",
+    `Poinçon du jour tamponné. ${streak>1 ? `${streak} jours d'affilée, bravo !` : 'À demain pour le deuxième !'}`])};
+  if(streak>=2 && yesterday) return {mood:'fire', text:`Ta série de ${streak} jours compte sur toi aujourd'hui. Un circuit et elle continue !`};
+  const lastDays = Object.keys(st.days).map(Number).filter(k=>st.days[k].c>0);
+  const last = lastDays.length ? Math.max(...lastDays) : null;
+  if(last!==null && t-last>=3) return {mood:'sad', text:"Tu m'as manqué ! Je t'ai gardé ton circuit du jour, on s'y remet ?"};
+  const h = new Date().getHours();
+  if(h<9) return {mood:'wave', text: pick(["Bonjour ! Un petit circuit avant l'école ?", "Déjà réveillé ? Parfait, le départ est prêt."])};
+  if(h>=21) return {mood:'wave', text:"Un dernier circuit avant de dormir ? Ta série t'attend."};
+  return {mood:'wave', text: pick(["Ton circuit du jour t'attend. On y va ?", "Prêt pour la forêt ? Le départ est donné quand tu veux.", "Aujourd'hui, de nouveaux symboles t'attendent sur le circuit."])};
+}
+const LINES = {
+  miss:["Oups ! Regarde bien la différence.", "Presque ! Tu l'auras la prochaine fois.", "Pas grave, on apprend en se trompant.", "Aïe, poste manquant ! Il va revenir.", "Regarde bien ce symbole, il revient bientôt."],
+  mapOk:["Bien lu !", "Œil de lynx !", "Exactement ça !", "Tu lis la carte comme un pro."],
+  mapMiss:["Pas cette fois. Regarde où était la flèche.", "Oups ! La carte recule pour te montrer.", "Presque ! Compare bien les deux symboles."],
+  duelMiss:["Ces deux-là se ressemblent beaucoup. Compare-les bien.", "Oups ! Regarde la petite différence."],
+};
+function lineFor(k){ return pick(LINES[k]); }
+
+/* =========================================================
+   Effets : étincelles, confettis, combos, étoiles, célébrations
+   ========================================================= */
+const calm = () => !!prefs.calm || (!!window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+function applyCalm(){ document.documentElement.classList.toggle('calm', !!prefs.calm); }
+let fxCanvas = null, fxCtx = null, fxParts = [], fxRAF = 0, fxLast = 0;
+function fxEnsure(){
+  if(fxCanvas) return true;
+  try{
+    fxCanvas = document.createElement('canvas'); fxCanvas.className = 'fx-layer'; fxCanvas.setAttribute('aria-hidden','true');
+    document.body.appendChild(fxCanvas); fxCtx = fxCanvas.getContext('2d');
+    fxResize(); addEventListener('resize', fxResize);
+    return !!fxCtx;
+  }catch(e){ return false; }
+}
+function fxResize(){ if(!fxCanvas) return; const d = Math.min(2, window.devicePixelRatio||1); fxCanvas.width = innerWidth*d; fxCanvas.height = innerHeight*d; fxCtx.setTransform(d,0,0,d,0,0); }
+const FX_COLORS = ['#F26A1B','#FFC83D','#B02A83','#3DAE49','#1D8FD0','#FFFFFF'];
+function fxStar(ctx, r){ ctx.beginPath(); for(let i=0;i<8;i++){ const a = i*Math.PI/4, rr = i%2 ? r*.42 : r; ctx.lineTo(Math.cos(a)*rr, Math.sin(a)*rr); } ctx.closePath(); ctx.fill(); }
+function fxLoop(now){
+  const dt = Math.min(40, now - (fxLast||now)) / 16.67; fxLast = now;
+  fxCtx.clearRect(0,0,innerWidth,innerHeight);
+  fxParts = fxParts.filter(p => p.life < p.max);
+  for(const p of fxParts){
+    p.life += dt; p.vy += p.g*dt; p.vx *= Math.pow(p.drag, dt); p.vy *= Math.pow(p.drag, dt);
+    p.x += p.vx*dt; p.y += p.vy*dt; p.rot += p.vr*dt;
+    const k = 1 - p.life/p.max, a = Math.min(1, k*2.2);
+    fxCtx.save(); fxCtx.globalAlpha = a; fxCtx.translate(p.x, p.y); fxCtx.rotate(p.rot); fxCtx.fillStyle = p.color;
+    if(p.shape==='rect'){ fxCtx.scale(1, Math.cos(p.life*.25+p.ph)); fxCtx.fillRect(-p.size/2, -p.size/4, p.size, p.size/2); }
+    else if(p.shape==='star'){ fxStar(fxCtx, p.size*(.6+.4*k)); }
+    else { fxCtx.beginPath(); fxCtx.arc(0,0,p.size*(.5+.5*k),0,Math.PI*2); fxCtx.fill(); }
+    fxCtx.restore();
+  }
+  if(fxParts.length) fxRAF = requestAnimationFrame(fxLoop);
+  else { fxRAF = 0; fxLast = 0; fxCtx.clearRect(0,0,innerWidth,innerHeight); }
+}
+function fxStart(){ if(!fxRAF) fxRAF = requestAnimationFrame(fxLoop); }
+// petites étincelles autour d'un bouton (bonne réponse)
+function burstAt(el, colors){
+  if(calm() || !el || !fxEnsure()) return;
+  const r = el.getBoundingClientRect(), cx = r.left + r.width/2, cy = r.top + r.height/2;
+  const cols = colors || ['#FFC83D','#3DAE49','#F26A1B','#FFFFFF'];
+  for(let i=0;i<16;i++){
+    const a = Math.random()*Math.PI*2, v = 3 + Math.random()*4.5;
+    fxParts.push({x:cx + Math.cos(a)*r.width*.18, y:cy + Math.sin(a)*r.height*.25, vx:Math.cos(a)*v, vy:Math.sin(a)*v - 1.5, g:.18, drag:.92, life:0, max:28+Math.random()*14,
+      size: 3 + Math.random()*4, color: cols[i%cols.length], shape: i%3 ? 'circle' : 'star', rot:0, vr:(Math.random()-.5)*.3, ph:0});
+  }
+  fxStart();
+}
+// pluie de confettis (fin de circuit parfaite, record, nouveau niveau)
+function confetti(n=110){
+  if(calm() || !fxEnsure()) return;
+  for(let i=0;i<n;i++){
+    const fromLeft = i%2===0, x = fromLeft ? -10 : innerWidth+10, y = innerHeight*(.35 + Math.random()*.35);
+    const a = fromLeft ? (-Math.PI/2 + .25 + Math.random()*.7) : (-Math.PI/2 - .25 - Math.random()*.7), v = 9 + Math.random()*9;
+    fxParts.push({x, y, vx:Math.cos(a)*v, vy:Math.sin(a)*v, g:.22, drag:.975, life:0, max:120+Math.random()*60,
+      size: 7 + Math.random()*6, color: FX_COLORS[i%FX_COLORS.length], shape: i%5===0 ? 'star' : 'rect', rot:Math.random()*6, vr:(Math.random()-.5)*.35, ph:Math.random()*6});
+  }
+  fxStart();
+}
+
+/* ---- sons en plus ---- */
+Object.assign(sfx, {
+  good(){ tone(1320,.07,'triangle',.05); tone(1980,.12,'triangle',.05,.07); },
+  combo(n){ const base = 660 + Math.min(6,n)*60; [0,1,2].forEach(i=>tone(base*(1+i*.26),.1,'triangle',.05,i*.07)); },
+  star(i){ tone(880*(1+i*.25),.14,'triangle',.06); },
+  fanfare(){ [523,659,784,1047].forEach((f,i)=>tone(f,.16,'triangle',.06,i*.11)); tone(1047,.4,'triangle',.05,.5); },
+  boop(){ tone(520,.07,'sine',.08); tone(780,.09,'sine',.07,.06); },
+  whoosh(){ tone(300,.12,'sawtooth',.02); tone(600,.1,'sawtooth',.015,.05); },
+});
+
+/* ---- combos pendant une partie ---- */
+function comboToast(n){
+  const el = document.createElement('div');
+  el.className = 'combo'; el.setAttribute('role','status');
+  el.innerHTML = `<svg viewBox="0 0 30 30" aria-hidden="true"><path d="M15 2c2 6 9 8 9 16a9 9 0 0 1-18 0c0-5 3-7 4-10 1 2 2 3 3 3 0-3 0-6 2-9z" fill="#FF7A1A"/><path d="M15 12c1 3 5 5 5 9a5 5 0 0 1-10 0c0-3 2-4 3-6 .5 1 1 1.5 1.5 1.5 0-1.5 0-3 .5-4.5z" fill="#FFC83D"/></svg><b>${n}</b><span>d'affilée !</span>`;
+  document.body.appendChild(el);
+  setTimeout(()=>el.remove(), 1300);
+}
+function onGood(btn){
+  session.combo = (session.combo||0) + 1;
+  const n = session.combo;
+  burstAt(btn);
+  const runner = document.querySelector('#screen-quiz .runner .bali');
+  if(n>=3 && [3,5,10,15,20,30,40,50].includes(n)){ comboToast(n); sfx.combo(n); buzz([15,40,15]); if(runner) baliSet(runner, 'fire', 900); }
+  else if(runner) baliSet(runner, 'happy', 700);
+  session.bestCombo = Math.max(session.bestCombo||0, n);
+}
+function onMiss(){
+  session.combo = 0;
+  const runner = document.querySelector('#screen-quiz .runner .bali');
+  if(runner) baliSet(runner, 'oops', 900);
+}
+
+/* ---- Bali coureur sur la ligne du tracé ---- */
+function placeRunner(){
+  const wrap = document.querySelector('#screen-quiz .strip-wrap'); if(!wrap || !session) return;
+  const r = wrap.querySelector('.runner'), dot = wrap.querySelector(`[data-i="${session.pos}"]`);
+  if(!r || !dot) return;
+  const wb = wrap.getBoundingClientRect(), db = dot.getBoundingClientRect();
+  const x = db.left - wb.left + db.width/2;
+  const prev = session.runX;
+  const b = r.querySelector('.bali');
+  if(prev==null || calm()){ r.style.left = x+'px'; }
+  else {
+    r.style.transition = 'none'; r.style.left = prev+'px'; void r.offsetWidth;
+    r.style.transition = ''; r.style.left = x+'px';
+    if(Math.abs(prev-x)>2 && b){ b.style.transform = x<prev ? 'scaleX(-1)' : ''; baliSet(b, 'run', 380); setTimeout(()=>{ if(b.isConnected) b.style.transform=''; }, 400); }
+  }
+  session.runX = x;
+}
+
+/* ---- étoiles de fin de partie ---- */
+function starsHTML(n){
+  const star = (on,i) => `<svg class="rstar${on?' on':''}" style="--d:${.35+i*.28}s" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 3.5l6.2 12.6 13.9 2-10 9.8 2.4 13.8L24 35.2l-12.5 6.5 2.4-13.8-10-9.8 13.9-2z" fill="${on?'#FFC83D':'var(--surface-2)'}" stroke="${on?'#2A1F1A':'var(--line)'}" stroke-width="2.6" stroke-linejoin="round"/></svg>`;
+  return `<div class="rstars" role="img" aria-label="${n} ${plural(n,'étoile','étoiles')} sur 3">${[0,1,2].map(i=>star(i<n,i)).join('')}</div>`;
+}
+function playStars(n){ if(!prefs.sound) return; for(let i=0;i<n;i++) setTimeout(()=>sfx.star(i), (350+i*280)); }
+// le chiffre défile jusqu'au résultat
+function countUp(el, to, fmt, ms=900){
+  if(!el) return;
+  if(calm()){ el.textContent = fmt(to); return; }
+  const t0 = performance.now();
+  const step = now => { const k = Math.min(1,(now-t0)/ms), e = 1-Math.pow(1-k,3); el.textContent = fmt(to*e); if(k<1 && el.isConnected) requestAnimationFrame(step); };
+  el.textContent = fmt(0); requestAnimationFrame(step);
+}
+function resultBali(stars, line){
+  const mood = stars>=3 ? 'cheer' : stars===2 ? 'happy' : 'proud';
+  return `<div class="res-bali">${baliSVG({mood, cls:'rb'})}<p class="bubble res-say">${esc(line)}</p></div>`;
+}
+
+/* ---- célébrations plein écran : niveau, accessoire ---- */
+const celebQueue = [];
+let celebOpen = false;
+function queueCeleb(rw){
+  if(!rw) return;
+  if(rw.levelUp) celebQueue.push({kind:'level', level:rw.level, name:rw.levelUp});
+  const ids = rw.accs || [];
+  if(ids.length>=3) celebQueue.push({kind:'accs', ids});
+  else for(const id of ids) celebQueue.push({kind:'acc', id});
+}
+function celebNext(){
+  if(celebOpen || !celebQueue.length) return;
+  if(!$('#sheet').hidden) return;          // on attend que la feuille ouverte soit fermée
+  const c = celebQueue.shift();
+  celebOpen = true;
+  const ov = document.createElement('div');
+  ov.className = 'celebrate'; ov.id = 'celebrate'; ov.setAttribute('role','dialog'); ov.setAttribute('aria-modal','true');
+  let inner;
+  if(c.kind==='level'){
+    inner = `<p class="cel-eyebrow">Nouveau niveau</p>${baliSVG({mood:'cheer', cls:'cel-b'})}<h2 class="cel-title">Niveau ${c.level+1}</h2><p class="cel-sub">${esc(c.name)}</p>
+      <p class="cel-text">Tu maîtrises de plus en plus de symboles. Bali est fière de toi !</p><button class="btn-primary" data-act="celebrate-ok">Super !</button>`;
+    ov.setAttribute('aria-label', `Niveau ${c.level+1}`);
+  } else if(c.kind==='accs'){
+    const look = {}; for(const id of c.ids){ const a = ACC_BY[id]; if(!look[a.slot]) look[a.slot] = id; }
+    inner = `<p class="cel-eyebrow">La garde-robe de Bali est ouverte</p>${baliSVG({mood:'cheer', cls:'cel-b', look})}<h2 class="cel-title">${c.ids.length} accessoires</h2>
+      <p class="cel-text">Tu les as déjà gagnés en jouant : ${esc(c.ids.map(id=>ACC_BY[id].name.toLowerCase()).join(', '))}.</p>
+      <div class="cel-actions"><button class="btn-primary" data-act="acc-open">Habiller Bali</button><button class="btn-ghost" data-act="celebrate-ok">Plus tard</button></div>`;
+    ov.setAttribute('aria-label', 'Nouveaux accessoires');
+  } else {
+    const a = ACC_BY[c.id], look = Object.assign({}, lookNow(), {[a.slot]:a.id});
+    inner = `<p class="cel-eyebrow">Nouvel accessoire pour Bali</p>${baliSVG({mood:'proud', cls:'cel-b', look})}<h2 class="cel-title">${esc(a.name)}</h2>
+      <p class="cel-text">Gagné en jouant : ${esc(a.how.charAt(0).toLowerCase()+a.how.slice(1))}</p>
+      <div class="cel-actions"><button class="btn-primary" data-act="acc-wear" data-id="${a.id}">Le mettre à Bali</button><button class="btn-ghost" data-act="celebrate-ok">Plus tard</button></div>`;
+    ov.setAttribute('aria-label', a.name);
+  }
+  ov.innerHTML = `<div class="cel-rays" aria-hidden="true"></div><div class="cel-card">${inner}</div>`;
+  document.body.appendChild(ov);
+  sfx.fanfare(); confetti(c.kind==='level' ? 140 : 80); buzz([20,50,20,50,60]);
+  setTimeout(()=>{ const b = ov.querySelector('.btn-primary'); if(b) b.focus({preventScroll:true}); }, 80);
+}
+function celebClose(){
+  const ov = $('#celebrate'); if(ov) ov.remove();
+  celebOpen = false;
+  if(!$('#screen-home').hidden) renderHome();
+  setTimeout(celebNext, 250);
+}
+
+/* ---- garde-robe ---- */
+function wearAcc(id){
+  const a = ACC_BY[id]; if(!a || !accUnlocked(id)) return;
+  if(st.look[a.slot]===id) delete st.look[a.slot]; else st.look[a.slot] = id;
+  st.look.t = Date.now(); touch();
+}
+function openWardrobe(){
+  const look = lookNow(), got = ACCS.filter(a=>accUnlocked(a.id)).length;
+  const item = a => {
+    const on = look[a.slot]===a.id, have = accUnlocked(a.id);
+    return `<button class="wr-item${on?' on':''}${have?'':' locked'}" data-act="${have?'acc-toggle':'acc-info'}" data-id="${a.id}" aria-pressed="${on}">
+      <span class="wr-pic">${baliSVG({mood:'idle', cls:'wr-b', look:{[a.slot]:a.id}, label:a.name})}${have?'':'<span class="wr-lock" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="currentColor"/><path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2.4"/></svg></span>'}</span>
+      <b>${esc(a.name)}</b><small>${have ? (on ? 'Porté' : 'Toucher pour le mettre') : esc(a.how)}</small></button>`;
+  };
+  openSheet(`
+    <div class="sheet-head"><p class="sheet-eyebrow">Garde-robe de Bali · ${got}/${ACCS.length}</p><button class="icon-btn" data-act="close-sheet" aria-label="Fermer">${ICONS.close}</button></div>
+    <div class="wr-top">${baliSVG({mood:'proud', cls:'wr-hero'})}<p class="bubble">${got ? 'Habille-moi ! Un accessoire par endroit : sur la tête, sur les yeux, dans la main, sur le corps et dans le dos.' : "Ma garde-robe est vide pour l'instant. Joue pour gagner mon premier accessoire !"}</p></div>
+    <div class="wr-grid">${ACCS.map(item).join('')}</div>`, 'Garde-robe de Bali');
 }
 
 /* =========================================================
@@ -1224,12 +1671,23 @@ const BADGE_PATHS = {
 function levelIcon(){
   return `<svg class="medal" viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="30" r="27" fill="#FFFFFF" stroke="#B02A83" stroke-width="3"/><path d="M19 36l11-9 11 9M19 27l11-9 11 9" fill="none" stroke="#B02A83" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
+let homeLineCache = null;
+function homeLineFor(){
+  const t = dayIndex(), day = st.days[t], key = [t, day?day.c:0, getStreak(), seenCount()>0, new Date().getHours()>=21].join('|');
+  if(!homeLineCache || homeLineCache.key!==key){
+    const l = (day && day.c>0 && new Date().getHours()>=21) ? {mood:'sleep', text:"Zzz… Circuit du jour bouclé. On se retrouve demain !"} : homeLine();
+    homeLineCache = Object.assign({key}, l);
+  }
+  return homeLineCache;
+}
 function renderHome(){
   probeMaps();
-  if(checkBadges().badges.length) touch();
+  const rwHome = checkBadges();
+  if(rwHome.badges.length || rwHome.accs.length || rwHome.levelUp){ touch(); queueCeleb(rwHome); setTimeout(celebNext, 900); }
   const t = dayIndex(), plan = planCircuit(), day = st.days[t], done = !!(day && day.c>0);
   const streak = getStreak(), total = ACTIVE().length, seen = seenCount(), mastered = masteredCount();
   const lv = levelInfo(), wk = weekInfo(), nConf = myConfusions().length, nBadges = Object.keys(st.badges).length;
+  const hl = homeLineFor();
   const cells = [];
   for(let i=6;i>=0;i--){
     const d = t-i, ok = !!(st.days[d] && st.days[d].c>0);
@@ -1243,7 +1701,7 @@ function renderHome(){
       <p class="eyebrow">Circuit du jour · ${esc(fmtDate(t))}</p>
       <h1 class="hero-title">${plan.total} postes</h1>
       <p class="hero-meta">${[plan.newIds.length ? `${plan.newIds.length} ${plural(plan.newIds.length,'nouveau symbole','nouveaux symboles')}` : '', plan.reviews.length ? `${plan.reviews.length} ${plural(plan.reviews.length,'révision','révisions')}` : '', plan.colorIds.length ? `${plan.colorIds.length} ${plural(plan.colorIds.length,'question de couleur','questions de couleur')}` : ''].filter(Boolean).join(' · ')}</p>
-      <button class="btn-primary" data-act="start-circuit">Prendre le départ</button>`;
+      <button class="btn-primary cta" data-act="start-circuit">Prendre le départ</button>`;
   const catRows = CATS.map(c=>{
     const ids = ACTIVE().filter(s=>s.cat===c.k), m = ids.filter(s=>card(s.id)&&card(s.id).b>=4).length, sn = ids.filter(s=>card(s.id)).length;
     return `<li><button class="cat-row" data-act="open-carnet" data-cat="${c.k}">${tile(c.rep,'',c.label)}<b>${esc(c.label)}</b><span class="bar" aria-hidden="true"><i class="m" style="width:${(m/ids.length*100).toFixed(1)}%"></i><i class="s" style="width:${((sn-m)/ids.length*100).toFixed(1)}%"></i></span><span class="count">${m}/${ids.length}</span></button></li>`;
@@ -1256,11 +1714,17 @@ function renderHome(){
         <button class="icon-btn" data-act="sound" aria-pressed="${prefs.sound}" aria-label="${prefs.sound?'Couper le son':'Activer le son'}">${prefs.sound?ICONS.soundOn:ICONS.soundOff}</button>
       </div>
     </header>
-    <p class="lede">La légende des cartes de course d'orientation, apprise un circuit par jour.</p>
+    <section class="bali-hero" aria-label="Bali, ta mascotte">
+      <button class="bali-btn" data-act="bali" aria-label="Toucher Bali pour une astuce">${baliSVG({mood:hl.mood, cls:'hb'})}</button>
+      <div class="bali-side">
+        <p class="bubble" id="bali-say" aria-live="polite">${esc(hl.text)}</p>
+        <button class="chip-btn" data-act="wardrobe"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6.5a2.2 2.2 0 1 1 2.2-2.2M12 6.5V8L3.5 15.5c-.9.8-.3 2.2.9 2.2h15.2c1.2 0 1.8-1.4.9-2.2L12 8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Garde-robe<small>${ACCS.filter(a=>accUnlocked(a.id)).length}/${ACCS.length}</small></button>
+      </div>
+    </section>
     <section class="carton" aria-label="Carton de contrôle des 7 derniers jours">
       <div class="carton-top">
         <div class="carton-grid">${cells.join('')}</div>
-        <div class="carton-streak"><strong>${streak}</strong><span>${streak? plural(streak,"jour d'affilée","jours d'affilée") : 'série à lancer'}</span></div>
+        <div class="carton-streak${streak?' lit':''}"><span class="streak-n">${streak?FLAME_SVG:''}<strong>${streak}</strong></span><span>${streak? plural(streak,"jour d'affilée","jours d'affilée") : 'série à lancer'}</span></div>
       </div>
       <div class="week">
         <span>Objectif de la semaine : <b>${Math.min(wk.n,WEEK_GOAL)}/${WEEK_GOAL}</b> ${wk.n>=WEEK_GOAL ? '· atteint' : 'circuits du jour'}</span>
@@ -1297,12 +1761,32 @@ function renderHome(){
     </section>
     <footer class="foot">
       <p>Pourquoi 31 ? En course d'orientation, les codes des postes commencent à 31 pour ne jamais être confondus avec leur numéro d'ordre sur le circuit.</p>
-      <p class="who">Connecté en tant que <b>${esc(me||'')}</b></p>
+      ${LOCAL ? '' : `<p class="who">Connecté en tant que <b>${esc(me||'')}</b></p>`}
       <p class="sync" id="sync">${syncHTML()}</p>
       <button class="linkish" data-act="help">Comment ça marche ?</button>
-      <button class="linkish" data-act="logout">Se déconnecter</button>
+      ${LOCAL ? '' : '<button class="linkish" data-act="logout">Se déconnecter</button>'}
+      <button class="linkish" data-act="calm">${prefs.calm ? 'Remettre les animations' : 'Couper les animations'}</button>
       <button class="linkish" data-act="reset">Remettre ma progression à zéro</button>
     </footer>`;
+  const hb = $('#screen-home .hb');
+  if(hb){
+    const base = (hl.mood==='wave' || hl.mood==='happy') ? 'idle' : hl.mood;
+    hb.dataset.base = base;
+    if(base!==hl.mood) baliSet(hb, hl.mood, 1700);
+  }
+  baliLookAround();
+}
+const FLAME_SVG = '<svg class="flame" viewBox="0 0 30 30" aria-hidden="true"><path d="M15 2c2 6 9 8 9 16a9 9 0 0 1-18 0c0-5 3-7 4-10 1 2 2 3 3 3 0-3 0-6 2-9z" fill="#FF7A1A"/><path d="M15 12c1 3 5 5 5 9a5 5 0 0 1-10 0c0-3 2-4 3-6 .5 1 1 1.5 1.5 1.5 0-1.5 0-3 .5-4.5z" fill="#FFC83D"/></svg>';
+// Bali parle quand on la touche
+let tipIdx = -1, baliTaps = 0, baliTapT = 0;
+function baliTalk(){
+  const el = $('#screen-home .hb'), say = $('#bali-say'); if(!el || !say) return;
+  const now = Date.now(); baliTaps = (now - baliTapT < 900) ? baliTaps+1 : 1; baliTapT = now;
+  let text, mood;
+  if(baliTaps>=5){ text = 'Hi hi, ça chatouille ! On va plutôt courir ?'; mood = 'cheer'; baliTaps = 0; confetti(40); }
+  else { tipIdx = (tipIdx + 1 + Math.floor(Math.random()*3)) % TIPS.length; text = TIPS[tipIdx]; mood = pick(['wow','happy','think','wave']); }
+  say.textContent = text; say.classList.remove('pop'); void say.offsetWidth; say.classList.add('pop');
+  baliSet(el, mood, 1500); sfx.boop(); buzz(10);
 }
 
 /* ---- pré-départ ---- */
@@ -1310,7 +1794,7 @@ function renderBrief(){
   const ids = session.newIds;
   $('#screen-brief').innerHTML = `
     <div class="sub-head"><button class="icon-btn" data-act="home" aria-label="Retour à l'accueil">${ICONS.back}</button><h1 class="h1">Zone de pré-départ</h1></div>
-    <p class="lede">${ids.length} ${plural(ids.length,'nouveau symbole va','nouveaux symboles vont')} tomber sur ton circuit, deux fois chacun. Regarde-les bien avant le bip.</p>
+    <div class="brief-bali">${baliSVG({mood:'think', cls:'bb'})}<p class="bubble">${ids.length} ${plural(ids.length,'nouveau symbole va','nouveaux symboles vont')} tomber sur ton circuit, deux fois chacun. Regarde-les bien avant le bip !</p></div>
     <ul class="brief">${ids.map(id=>`<li>${tile(id)}<div><b>${esc(BY_ID[id].name)}</b><small>${esc(CAT[BY_ID[id].cat].label)}</small></div>${EXPL[id]?`<div class="brief-txt"><p>${esc(EXPL[id][0])}</p><p><span class="lbl">Sur le terrain</span>${esc(EXPL[id][1])}</p></div>`:''}</li>`).join('')}</ul>
     <div class="go-bar"><button class="btn-primary" data-act="go">Je suis prêt : départ</button></div>`;
 }
@@ -1331,7 +1815,7 @@ function stripSVG(){
     const cur = i===session.pos, past = i<session.pos;
     const fill = cur ? 'currentColor' : (past && it.result==='ok') ? 'currentColor' : 'none';
     const op = cur ? 1 : past ? (it.result==='ok' ? .3 : 1) : .45;
-    s += `<circle cx="${x}" cy="${y}" r="6.5" fill="${fill}" fill-opacity="${cur?1:.3}" stroke="currentColor" stroke-width="1.6" opacity="${op}"${it.retry?' stroke-dasharray="2.5 2"':''}/>`;
+    s += `<circle data-i="${i}" cx="${x}" cy="${y}" r="6.5" fill="${fill}" fill-opacity="${cur?1:.3}" stroke="currentColor" stroke-width="1.6" opacity="${op}"${it.retry?' stroke-dasharray="2.5 2"':''}/>`;
     if(past && it.result==='miss') s += `<path d="M${x-3.5} ${y-3.5} L${x+3.5} ${y+3.5} M${x+3.5} ${y-3.5} L${x-3.5} ${y+3.5}" stroke="currentColor" stroke-width="1.6"/>`;
   }
   const fx = xs[xs.length-1];
@@ -1386,8 +1870,14 @@ function optionsHTML(it){
 function renderQuestion(){
   const it = session.queue[session.pos];
   prepareItem(it);
-  const top = session.mode==='sprint' ? `<div class="tbar"><i id="tbar" style="width:${(Math.max(0,SPRINT_MS-clock.now()-session.penalty)/SPRINT_MS*100).toFixed(1)}%"></i></div>` : stripSVG();
+  const rem = Math.max(0,SPRINT_MS-clock.now()-session.penalty)/SPRINT_MS*100;
+  const top = session.mode==='sprint'
+    ? `<div class="tbar-wrap"><div class="tbar"><i id="tbar" style="width:${rem.toFixed(1)}%"></i></div><div class="runner sprint" id="srun" style="left:${rem.toFixed(1)}%" aria-hidden="true">${baliSVG({mood:'run', cls:'rb-mini'})}</div></div>`
+    : `<div class="strip-wrap">${stripSVG()}<div class="runner" aria-hidden="true">${baliSVG({mood:'idle', cls:'rb-mini'})}</div></div>`;
   $('#screen-quiz').innerHTML = qbarHTML() + top + `<div class="qbody">${promptHTML(it)}${optionsHTML(it)}</div>`;
+  const sr = $('#srun .bali'); if(sr) sr.dataset.base = 'run';
+  placeRunner();
+  armHint(it);
   session.qStart = clock.now();
   session.locked = false;
   const m = (it.type==='map' || it.type==='tap') ? currentMap() : null;
@@ -1397,8 +1887,27 @@ function renderQuestion(){
     $$('#screen-quiz .opts [data-act="ans"]').forEach(b=>{ b.disabled = true; });
   }
 }
+// au bout de 15 secondes sans réponse, Bali donne la famille du symbole
+let hintTimer = null;
+function armHint(it){
+  clearTimeout(hintTimer);
+  if(!session || session.mode==='sprint' || !['s2n','n2s'].includes(it.type) || it.duel) return;
+  const pos = session.pos;
+  hintTimer = setTimeout(()=>{
+    if(!session || session.over || session.pos!==pos || session.locked || !$('#fb').hidden || !$('#sheet').hidden) return;
+    const wrap = $('#screen-quiz .strip-wrap'); if(!wrap || wrap.querySelector('.hint')) return;
+    const b = wrap.querySelector('.runner .bali'); if(b){ b.dataset.base = 'think'; baliSet(b, 'think'); }
+    const h = document.createElement('p'); h.className = 'hint'; h.setAttribute('role','status');
+    h.textContent = `Indice : famille « ${CAT[BY_ID[it.id].cat].short} »`;
+    wrap.appendChild(h);
+    const r = wrap.querySelector('.runner'), rx = r ? parseFloat(r.style.left)||0 : 0;
+    h.style.left = Math.max(0, Math.min(wrap.clientWidth - h.offsetWidth, rx + 20)) + 'px';
+    sfx.boop();
+  }, 15000);
+}
 function answer(v, btn){
   if(!session || session.locked || session.over || session.waiting || session.mapWait) return;
+  clearTimeout(hintTimer);
   const it = session.queue[session.pos];
   if(it.type==='recall') return;
   session.locked = true;
@@ -1407,6 +1916,7 @@ function answer(v, btn){
   it.result = ok ? 'ok' : 'miss';
   if(!ok && it.type!=='color') recordConf(it.answer, v);
   $$('#screen-quiz [data-act="ans"]').forEach(b=>{ b.disabled = true; if(b.dataset.v===it.answer) b.classList.add('is-right'); else if(b.dataset.v===v) b.classList.add('is-wrong','shake'); });
+  if(ok) onGood(btn && btn.isConnected ? btn : $(`#screen-quiz .opts [data-v="${v}"]`)); else onMiss();
   if(session.mode==='sprint'){ sprintAnswer(it, ok); return; }
   if(session.mode==='map' || session.mode==='tap'){ mapAnswer(it, v, ok); return; }
   if(session.mode==='duel'){ duelAnswer(it, v, ok); return; }
@@ -1438,7 +1948,7 @@ function showFeedback(it, v){
   }
   const tag = session.mode==='circuit' ? 'Poste manquant' : 'Raté';
   const note = !it.requeued ? 'On passe au suivant : il reviendra dans tes prochaines révisions.' : `Il revient un peu plus loin : ${session.mode==='circuit'?'tu dois le pointer pour finir le circuit':'redonne-lui sa chance'}.`;
-  fb.innerHTML = `<div class="fb-inner"><p class="fb-tag">${tag}</p>${body}<p class="fb-note">${note}</p><button class="btn-primary" data-act="continue" id="fb-go">Continuer</button></div>`;
+  fb.innerHTML = `<div class="fb-inner">${fbTop(false, tag, lineFor('miss'))}${body}<p class="fb-note">${note}</p><button class="btn-primary" data-act="continue" id="fb-go">Continuer</button></div>`;
   fb.hidden = false;
   setTimeout(()=>{ const b = $('#fb-go'); if(b) b.focus({preventScroll:true}); }, 60);
 }
@@ -1453,7 +1963,7 @@ function mapAnswer(it, v, ok){
   const last = session.pos >= session.queue.length-1;
   const nextLbl = last ? 'Voir mon résultat' : tap ? 'Zone suivante' : 'Flèche suivante';
   fb.innerHTML = `<div class="fb-inner">
-    <p class="fb-tag${ok?' ok':''}">${ok ? 'Bien lu' : 'Raté'}</p>
+    ${fbTop(ok, ok ? 'Bien lu' : 'Raté', lineFor(ok ? 'mapOk' : 'mapMiss'))}
     <div class="fb-row good">${tile(it.id)}<div><small>${tap ? 'La bonne flèche montre' : 'La flèche montre'}</small><b>${esc(s.name)}</b></div></div>
     ${ok ? '' : `<div class="fb-row bad">${tile(v)}<div><small>${tap ? 'Ta flèche montrait' : 'Ta réponse'}</small><b>${esc(BY_ID[v].name)}</b></div></div>`}
     ${EXPL[it.id] ? `<p class="fb-expl"><span class="lbl">Sur le terrain</span>${esc(EXPL[it.id][1])}</p>` : ''}
@@ -1473,7 +1983,7 @@ function duelAnswer(it, v, ok){
   const side = id => `<div class="cmp-col${id===it.id?' good':''}">${tile(id)}<b>${esc(BY_ID[id].name)}</b>${EXPL[id]?`<p>${esc(EXPL[id][0])}</p>`:''}</div>`;
   const last = session.pos >= session.queue.length-1;
   fb.innerHTML = `<div class="fb-inner">
-    <p class="fb-tag">Raté</p>
+    ${fbTop(false, 'Raté', lineFor('duelMiss'))}
     <p class="fb-note">La bonne réponse était <b>${esc(BY_ID[it.id].name)}</b>. Compare-les côte à côte :</p>
     <div class="cmp">${side(a)}${side(b)}</div>
     <button class="btn-primary" data-act="continue" id="fb-go">${last ? 'Voir mon résultat' : 'Duel suivant'}</button></div>`;
@@ -1498,12 +2008,15 @@ function selfGrade(yes){
   session.log.push({id:it.id, type:'recall', ok, ms:it.revealMs||0, code:31+session.pos, retry:!!it.retry});
   it.result = ok ? 'ok' : 'miss';
   grade(it, ok); touch();
-  if(ok){ sfx.punch(); buzz(15); }
+  if(ok){ sfx.punch(); buzz(15); onGood($('#screen-quiz .self-yes')); }
   else {
-    sfx.wrong(); buzz([30,40,30]);
+    sfx.wrong(); buzz([30,40,30]); onMiss();
     if(!it.retry) session.queue.splice(Math.min(session.pos+4, session.queue.length), 0, {id:it.id, type:'recall', dir: it.dir==='s' ? 'n' : 's', retry:true});
   }
   setTimeout(next, 250);
+}
+function fbTop(ok, tag, line){
+  return `<div class="fb-top">${baliSVG({mood: ok ? 'happy' : 'oops', cls:'fb-b'})}<div><p class="fb-tag${ok?' ok':''}">${esc(tag)}</p><p class="fb-say">${esc(line)}</p></div></div>`;
 }
 function hideFeedback(){ const fb = $('#fb'); fb.hidden = true; fb.innerHTML = ''; }
 function next(){
@@ -1526,12 +2039,13 @@ function go(withCountdown){
   renderQuestion();
   const begin = () => { session.waiting = false; clock.reset(); clock.start(); session.qStart = 0; startTick(); tick(); };
   if(!withCountdown){ begin(); return; }
-  const ov = $('#countdown'), numEl = $('#cd-num');
+  const ov = $('#countdown'), numEl = $('#cd-num'), cdb = $('#cd-bali');
+  if(cdb){ cdb.classList.remove('dash'); cdb.innerHTML = baliSVG({mood:'ready', cls:'cd-b'}); }
   let i = 3; ov.hidden = false; numEl.textContent = '3'; sfx.tick();
   const iv = setInterval(()=>{
     i--;
     if(i>0){ numEl.textContent = String(i); numEl.style.animation='none'; void numEl.offsetWidth; numEl.style.animation=''; sfx.tick(); }
-    else if(i===0){ numEl.textContent = 'Top'; numEl.style.animation='none'; void numEl.offsetWidth; numEl.style.animation=''; sfx.go(); }
+    else if(i===0){ numEl.textContent = 'Top'; numEl.style.animation='none'; void numEl.offsetWidth; numEl.style.animation=''; sfx.go(); if(cdb){ const b = cdb.querySelector('.bali'); baliSet(b, 'run'); cdb.classList.add('dash'); } }
     else { clearInterval(iv); ov.hidden = true; if(session) begin(); }
   }, 600);
 }
@@ -1638,17 +2152,30 @@ function finishSimple(o){
   const t = dayIndex(); const day = st.days[t] || (st.days[t] = {c:0, first:0, pm:0, n:0}); day.n += session.log.length;
   const rw = checkBadges(o.extra);
   touch(); flushCloud();
+  const ratio = o.total ? o.good/o.total : 0, stars = ratio>=.9 ? 3 : ratio>=.6 ? 2 : 1;
+  const line = stars===3 ? (o.good===o.total ? 'Sans faute ! Tu es trop fort.' : 'Presque parfait, bravo !') : stars===2 ? 'Bien joué ! Encore un effort pour les 3 étoiles.' : "Continue ! C'est en s'entraînant qu'on progresse.";
   $('#screen-result').innerHTML = `
     <div class="res-head">
+      ${resultBali(stars, line)}
+      ${starsHTML(stars)}
       <p class="res-eyebrow">${esc(o.eyebrow)}</p>
-      <h1 class="res-time">${o.good}/${o.total}</h1>
+      <h1 class="res-time" id="res-num">${o.good}/${o.total}</h1>
       <p class="res-sub">${o.sub}</p>
+      ${(session.bestCombo||0)>=3 ? `<p class="badge combo-badge">Meilleur combo : ${session.bestCombo} d'affilée</p>` : ''}
     </div>
     ${rewardsHTML(rw)}
     <h2 class="h2">À revoir</h2>
     ${reviewList(o.missed)}
     <div class="res-actions"><button class="btn-primary" data-act="${o.againAct}"${o.againCat?` data-cat="${o.againCat}"`:''}>${esc(o.againLabel)}</button><button class="btn-ghost" data-act="home">Retour à l'accueil</button></div>`;
   showScreen('result'); sfx.finish();
+  resultFx(stars, false, rw, $('#res-num'), o.good, v=>`${Math.round(v)}/${o.total}`);
+}
+function resultFx(stars, record, rw, numEl, to, fmt){
+  countUp(numEl, to, fmt);
+  playStars(stars);
+  if(stars===3 || record) setTimeout(()=>confetti(), 700);
+  queueCeleb(rw);
+  setTimeout(celebNext, stars===3 || record ? 2200 : 1400);
 }
 function finishMap(){
   const good = session.log.filter(l=>l.ok).length, total = session.log.length;
@@ -1672,10 +2199,11 @@ function finishDuel(){
     missed:[...new Set(session.log.filter(l=>!l.ok).map(l=>l.id))], againAct:'start-duel', againLabel:'Nouvelle série de duels'});
 }
 function rewardsHTML(r){
-  if(!r || (!r.badges.length && !r.levelUp)) return '';
+  if(!r || (!r.badges.length && !r.levelUp && !(r.accs||[]).length)) return '';
   const items = [];
   if(r.levelUp) items.push(`<li class="rw"><span class="rw-ic">${levelIcon()}</span><span><small>Nouveau niveau</small><b>${esc(r.levelUp)}</b></span></li>`);
   for(const k of r.badges){ const b = BADGES.find(x=>x.k===k); if(b) items.push(`<li class="rw"><span class="rw-ic">${badgeIcon(b, true)}</span><span><small>Badge débloqué</small><b>${esc(b.name)}</b></span></li>`); }
+  for(const id of (r.accs||[])){ const a = ACC_BY[id]; if(a) items.push(`<li class="rw"><span class="rw-ic">${baliSVG({mood:'proud', cls:'rw-b', look:{[a.slot]:a.id}, label:a.name})}</span><span><small>Accessoire pour Bali</small><b>${esc(a.name)}</b></span></li>`); }
   return `<ul class="rewards">${items.join('')}</ul>`;
 }
 function startSprint(){
@@ -1722,15 +2250,19 @@ function finishCircuit(){
   const rw = checkBadges(firstRun && pm===0 ? ['sans-faute'] : []);
   pruneDays(); touch(); flushCloud();
   const mastered = masteredCount(), delta = mastered - session.mastered0, streak = getStreak();
+  const stars = pm===0 ? 3 : pm<=2 ? 2 : 1;
+  const line = (stars===3 ? 'Sans faute ! Tous les postes pointés du premier coup.' : stars===2 ? 'Beau circuit ! Encore un petit effort pour les 3 étoiles.' : "Circuit bouclé ! Chaque poste manquant t'apprend quelque chose.") + (rec ? ' Et nouveau record de vitesse !' : '');
   const okLogs = session.log.filter(l=>l.ok); const slowest = okLogs.length ? okLogs.reduce((a,b)=>b.ms>a.ms?b:a) : null;
   const rows = session.log.map(l=>`<tr data-act="detail" data-id="${l.id}"${l===slowest?' class="slow"':''}><td class="code">${l.code}</td><td><div class="sym">${tile(l.id,'',BY_ID[l.id].name)}<span>${esc(BY_ID[l.id].name)}${l.type==='color'?' <span class="muted">(couleur)</span>':''}${l===slowest?'<span class="tag">Le plus long</span>':''}</span></div></td><td class="num">${fmtSec1(l.ms)}${l.ok?'':'<em class="pm">PM</em>'}</td></tr>`).join('');
   $('#screen-result').innerHTML = `
     <div class="res-head">
-      <svg class="res-mark" viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="30" r="24" fill="none" stroke="currentColor" stroke-width="3.5"/><circle cx="30" cy="30" r="15" fill="none" stroke="currentColor" stroke-width="3.5"/></svg>
+      ${resultBali(stars, line)}
+      ${starsHTML(stars)}
       <p class="res-eyebrow">Arrivée · ${firstRun ? 'circuit du jour' : 'circuit bonus'}</p>
-      <h1 class="res-time">${fmtClock(ms)}</h1>
+      <h1 class="res-time" id="res-num">${fmtClock(ms)}</h1>
       <p class="res-sub">${session.initial} postes · ${pm} ${plural(pm,'poste manquant','postes manquants')} · ${fmtSec1(avg)} par poste</p>
       ${rec ? `<p class="badge">${prev ? 'Nouveau record de vitesse' : 'Premier record posé'} : ${fmtSec1(avg)} par poste</p>` : ''}
+      ${(session.bestCombo||0)>=3 ? `<p class="badge combo-badge">Meilleur combo : ${session.bestCombo} d'affilée</p>` : ''}
     </div>
     ${rewardsHTML(rw)}
     <div class="stats3">
@@ -1743,6 +2275,7 @@ function finishCircuit(){
     <div class="splits"><table><thead><tr><th>Code</th><th>Poste</th><th style="text-align:right">Temps</th></tr></thead><tbody>${rows}</tbody></table></div>
     <div class="res-actions"><button class="btn-primary" data-act="home">Retour à l'accueil</button><button class="btn-ghost" data-act="start-circuit">Courir un circuit bonus</button></div>`;
   showScreen('result'); sfx.finish(); buzz([20,60,20,60,40]);
+  resultFx(stars, rec, rw, $('#res-num'), ms, v=>fmtClock(v));
 }
 function reviewList(ids){
   if(!ids.length) return `<p class="empty">Aucune erreur. Tout est passé du premier coup.</p>`;
@@ -1761,10 +2294,14 @@ function finishSprint(){
   const t = dayIndex(); const day = st.days[t] || (st.days[t] = {c:0, first:0, pm:0, n:0}); day.n += session.log.length;
   const rw = checkBadges();
   touch(); flushCloud();
+  const stars = rec ? 3 : (prev && sc >= prev*.75) ? 2 : 1;
+  const line = rec ? (prev ? 'Nouveau record ! Tu vas plus vite que le chrono.' : 'Premier record posé ! Essaie de le battre.') : stars===2 ? 'Pas loin de ton record ! Encore un sprint ?' : 'Le chrono est rapide ! On réessaie ?';
   $('#screen-result').innerHTML = `
     <div class="res-head">
+      ${resultBali(stars, line)}
+      ${starsHTML(stars)}
       <p class="res-eyebrow">Sprint 60 secondes</p>
-      <h1 class="res-time">${sc}</h1>
+      <h1 class="res-time" id="res-num">${sc}</h1>
       <p class="res-sub">${plural(sc,'bonne réponse','bonnes réponses')} · ${session.misses.length} ${plural(session.misses.length,'erreur','erreurs')}</p>
       ${rec ? `<p class="badge">${prev ? `Nouveau record (avant : ${prev})` : 'Premier record posé'}</p>` : `<p class="res-sub">Record : ${st.bestSprint}</p>`}
     </div>
@@ -1773,6 +2310,7 @@ function finishSprint(){
     ${reviewList(session.misses)}
     <div class="res-actions"><button class="btn-primary" data-act="start-sprint">Relancer un sprint</button><button class="btn-ghost" data-act="home">Retour à l'accueil</button></div>`;
   showScreen('result'); sfx.finish();
+  resultFx(stars, rec, rw, $('#res-num'), sc, v=>String(Math.round(v)));
 }
 
 /* ---- carnet ---- */
@@ -1818,9 +2356,11 @@ function openSheet(html, label){
   if(session && !session.over && clock.running){ clock.pause(); sheetPaused = true; }
 }
 function closeSheet(){
+  const wasOpen = !$('#sheet').hidden;
   $('#sheet').hidden = true; $('#sheet-body').innerHTML = '';
   if(sheetPaused && session && !session.over && $('#fb').hidden && !session.waiting) clock.start();
   sheetPaused = false;
+  if(wasOpen && celebQueue.length) setTimeout(celebNext, 300);
 }
 function explHTML(id){
   const e = EXPL[id]; if(!e) return '';
@@ -1893,20 +2433,28 @@ function openBadge(k){
     <div class="sheet-head"><p class="sheet-eyebrow">Badge</p><button class="icon-btn" data-act="close-sheet" aria-label="Fermer">${ICONS.close}</button></div>
     <div class="badge-detail">${badgeIcon(b, !!at)}<h2 class="detail-name">${esc(b.name)}</h2><p>${esc(b.desc)}</p><p class="muted small">${at ? `Débloqué le ${date}.` : esc(prog || 'Pas encore débloqué.')}</p></div>`, b.name);
 }
-function openIntro(){
-  prefs.intro = true; savePrefs();
-  const sec = (ic, title, text) => `<section><span class="ic">${ic}</span><div><h3>${title}</h3><p>${text}</p></div></section>`;
+const INTRO = [
+  {mood:'wave', title:'Salut, moi c\'est Bali !', text:"Je suis une balise de course d'orientation, orange et blanche, comme celles que tu cherches en forêt. Je vais t'aider à apprendre par cœur la légende des cartes."},
+  {mood:'run', title:'Le circuit du jour', text:"Chaque jour, un circuit d'environ 14 postes. Chaque poste est une question sur un symbole. Avant le départ, la zone de pré-départ te montre les nouveaux symboles du jour."},
+  {mood:'oops', title:'Le poste manquant', text:"Une mauvaise réponse, c'est un poste manquant, comme en course. Pas de panique : le symbole revient un peu plus loin et tu dois le pointer pour finir."},
+  {mood:'fire', title:'Combos et série', text:"Enchaîne les bonnes réponses pour faire des combos. Cours le circuit du jour tous les jours pour allumer ta série : 5 circuits par semaine, c'est l'objectif."},
+  {mood:'proud', title:'Niveaux et garde-robe', text:"Chaque symbole a un niveau de 1 à 5. Plus tu en maîtrises, plus tu montes de niveau. En progressant, tu gagnes des accessoires pour m'habiller : casquette, frontale, cape…"},
+  {mood:'cheer', title:'Et plein d\'autres jeux', text:"Sprint de 60 secondes, lecture de vraies cartes, duels entre symboles qui se ressemblent… Tu les trouves en bas de l'accueil. Allez, on y va ?"},
+];
+let introStep = 0;
+function openIntro(step=0){
+  prefs.intro = true; prefs.intro2 = true; savePrefs();
+  introStep = Math.max(0, Math.min(INTRO.length-1, step));
+  const c = INTRO[introStep], last = introStep===INTRO.length-1;
   openSheet(`
-    <div class="sheet-head"><p class="sheet-eyebrow">Comment ça marche</p><button class="icon-btn" data-act="close-sheet" aria-label="Fermer">${ICONS.close}</button></div>
-    <h2 class="detail-name">Bienvenue sur Poste 31</h2>
-    <div class="intro">
-      ${sec(ICONS.map, 'Le circuit du jour', "Chaque jour, un circuit d'environ 14 postes : chaque poste est une question sur un symbole. Avant le départ, la zone de pré-départ te présente les nouveaux symboles du jour.")}
-      ${sec(ICONS.close, 'Le poste manquant', "Une mauvaise réponse est un poste manquant, ou PM, comme en course : le symbole revient un peu plus loin et tu dois le pointer pour finir le circuit.")}
-      ${sec(ICONS.carnet, 'Tes niveaux de 1 à 5', "Chaque symbole a un niveau. Une bonne réponse le fait monter et il revient plus tard (1, 2, 4, 8 puis 16 jours). Une erreur le renvoie au niveau 1 et il revient vite. À partir du niveau 4, il est maîtrisé.")}
-      ${sec(ICONS.duel, 'Les autres modes', "Sprint, lecture de carte, touche la carte, rappel sans choix, duels sur tes confusions et entraînement par famille : ils complètent le circuit du jour.")}
-      ${sec(ICONS.sprint, 'Ta série et tes objectifs', "Ta série avance chaque jour où tu cours le circuit du jour. Vise 5 circuits par semaine, monte de niveau et débloque des badges.")}
+    <div class="sheet-head"><p class="sheet-eyebrow">Comment ça marche · ${introStep+1}/${INTRO.length}</p><button class="icon-btn" data-act="close-sheet" aria-label="Fermer">${ICONS.close}</button></div>
+    <div class="intro-step">
+      ${baliSVG({mood:c.mood, cls:'intro-b'})}
+      <h2 class="detail-name">${esc(c.title)}</h2>
+      <p>${esc(c.text)}</p>
     </div>
-    <div class="res-actions"><button class="btn-primary" data-act="close-sheet">C'est parti</button></div>`, 'Comment ça marche');
+    <div class="intro-dots" aria-hidden="true">${INTRO.map((_,i)=>`<i class="${i===introStep?'on':''}"></i>`).join('')}</div>
+    <div class="intro-nav">${introStep>0 ? '<button class="btn-ghost" data-act="intro-prev">Retour</button>' : '<span></span>'}<button class="btn-primary" data-act="${last?'close-sheet':'intro-next'}">${last ? "C'est parti !" : 'Suivant'}</button></div>`, 'Comment ça marche');
 }
 
 /* =========================================================
@@ -1933,6 +2481,16 @@ document.addEventListener('click', e => {
     case 'toggle-ext': st.opt.ext = !st.opt.ext; st.opt.extT = Date.now(); touch(); renderCarnet(); break;
     case 'badge': openBadge(el.dataset.k); break;
     case 'help': openIntro(); break;
+    case 'intro-next': sfx.boop(); openIntro(introStep+1); break;
+    case 'intro-prev': openIntro(introStep-1); break;
+    case 'bali': audio(); baliTalk(); break;
+    case 'wardrobe': audio(); openWardrobe(); break;
+    case 'acc-toggle': wearAcc(el.dataset.id); sfx.boop(); openWardrobe(); if(!$('#screen-home').hidden) renderHome(); break;
+    case 'acc-info': { const it = el; it.classList.remove('shake'); void it.offsetWidth; it.classList.add('shake'); sfx.wrong(); break; }
+    case 'acc-wear': { const a = ACC_BY[el.dataset.id]; if(a && st.look[a.slot]!==a.id) wearAcc(a.id); celebClose(); break; }
+    case 'celebrate-ok': celebClose(); break;
+    case 'acc-open': celebClose(); setTimeout(openWardrobe, 120); break;
+    case 'calm': prefs.calm = !prefs.calm; savePrefs(); applyCalm(); renderHome(); break;
     case 'auth-tab': setAuthTab(el.dataset.tab); break;
     case 'logout': openLogoutConfirm(); break;
     case 'logout-confirm': logout(); break;
@@ -1980,7 +2538,7 @@ document.addEventListener('visibilitychange', () => {
    Écrans de connexion
    ========================================================= */
 const normUser = s => String(s||'').trim().toLowerCase();
-const normAnswer = s => String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim().replace(/\s+/g,' ');
+const normAnswer = s => String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().replace(/\s+/g,' ');
 const USER_RE = /^[a-z0-9][a-z0-9._-]{2,19}$/;
 const AUTH_ERR = {
   bad_username:"Le pseudo doit faire 3 à 20 caractères : lettres sans accent, chiffres, point, tiret ou tiret bas, en commençant par une lettre ou un chiffre.",
@@ -2025,19 +2583,22 @@ function setAuthTab(tab){
 }
 function showAuth(tab, msg){
   me = null; st = blankState();
+  celebQueue.length = 0; homeLineCache = null;   // rien ne doit passer d'un joueur à l'autre
+  const ov = $('#celebrate'); if(ov){ ov.remove(); celebOpen = false; }
   showScreen('auth');
   setAuthTab(tab || 'login');
   if(msg) formMsg({login:'login-msg', signup:'su-msg', recover:'rc-msg'}[tab||'login'], msg, 'info');
 }
 function enterApp(username, token){
   if(token) setToken(token);
+  if(me !== username){ celebQueue.length = 0; homeLineCache = null; }
   me = username;
   try{ localStorage.setItem(LS_KEY + '.last', username); }catch(e){}
   st = loadLocal(username);
   syncState = 'wait';
   renderHome(); showScreen('home');
   pullCloud();
-  if(!prefs.intro) setTimeout(openIntro, 400);
+  if(!prefs.intro2) setTimeout(()=>openIntro(0), 400);
 }
 function sessionLost(){
   const u = me;
@@ -2130,6 +2691,15 @@ document.addEventListener('change', e => {
 
 /* ---- lancement ---- */
 async function boot(){
+  applyCalm();
+  if(LOCAL){
+    syncState = 'local';
+    try{ st = normalize(JSON.parse(localStorage.getItem(LS_KEY) || 'null')); }catch(e){ st = blankState(); }
+    renderHome(); showScreen('home');
+    connectArtifact();
+    if(!prefs.intro2) setTimeout(()=>openIntro(0), 400);
+    return;
+  }
   if(!CONFIGURED){ showScreen('setup'); return; }
   const token = getToken();
   if(!token){ showAuth('login'); return; }
